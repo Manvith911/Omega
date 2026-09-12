@@ -1,0 +1,58 @@
+name: draft release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  draft:
+    runs-on: windows-latest
+    # main purpose is to demonstrate that the unsigned installer carries all
+    # content, can be downloaded, and runs the test suite on its own machine.
+    env:
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: install
+        run: npm ci --no-audit --no-fund
+
+      - name: postinstall
+        run: npm run postinstall
+
+      - name: verify storage
+        run: npm run verify:storage
+
+      - name: verify freeze
+        run: npm run verify:freeze
+
+      - name: build
+        run: npx electron-vite build
+
+      - name: run typecheck
+        run: npm run typecheck
+
+      - name: package
+        run: npx electron-builder --win --publish never
+
+      - name: list artifacts
+        run: powershell -Command 'Get-ChildItem -Path release -Recurse | Select-Object FullName,Length | Sort-Object Length -Descending | Format-Table -AutoSize'
+
+      - name: write release notes
+        run: |
+          gh release create ${{ github.ref_name }} --draft --title "Omega ${{ github.ref_name }}" --notes-file - <<EOF
+            Built from ${{ github.sha }}. Artifacts include the unsigned Windows installer.
+            Test suite: storage and freeze verification passed, then a build and typecheck run.
+
+            To install locally, download `omega-*.exe`, run it, and launch Omega.
+            To build macOS or Linux, use `npm run build:mac` or `npm run build:linux`.
+          EOF
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

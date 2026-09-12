@@ -1,0 +1,11 @@
+node_modules/
+out/
+release/
+dist/
+*.log
+.DS_STORE
+Thumbs.db
+.vite/
+.eslintcache
+*.tsbuildinfo
+test/.storage.cjs

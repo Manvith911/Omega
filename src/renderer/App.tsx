@@ -1,0 +1,112 @@
+import { useEffect, useRef } from 'react'
+import { HistoryPanel } from './components/HistoryPanel'
+import { PerfOverlay } from './components/PerfOverlay'
+import { SettingsPanel } from './components/SettingsPanel'
+import { Sidebar } from './components/Sidebar'
+import { TabStrip } from './components/TabStrip'
+import { Toast } from './components/Toast'
+import { Toolbar } from './components/Toolbar'
+import { useChrome } from './store'
+
+export default function App(): React.JSX.Element {
+  const viewportRef = useRef<HTMLDivElement>(null)
+
+  const sidebarOpen = useChrome((s) => s.sidebarOpen)
+  const historyOpen = useChrome((s) => s.historyOpen)
+  const settingsOpen = useChrome((s) => s.settingsOpen)
+
+  /**
+   * A full-content panel cannot be drawn over the page: native views always
+   * composite above the window's own webContents. So instead of covering the
+   * page, we hide it and let the panel use the freed space.
+   */
+  const pageHidden = historyOpen || settingsOpen
+
+  // ── Push events from the main process ──
+  useEffect(() => {
+    const store = useChrome.getState()
+    // Actions are stable references in zustand, so calling getState() once is
+    // safe and avoids re-subscribing on every state change.
+    const unsubscribe = [
+      window.omega.on('tab:list', store.setTabs),
+      window.omega.on('tab:updated', store.applyTab),
+      window.omega.on('tab:closed', store.removeTab),
+      window.omega.on('tab:activated', store.setActiveTab),
+      window.omega.on('win:state', store.setWindowState),
+      window.omega.on('ui:command', store.applyCommand),
+      window.omega.on('toast', store.setToast),
+    ]
+    return () => unsubscribe.forEach((off) => off())
+  }, [])
+
+  // ── Initial state ──
+  useEffect(() => {
+    const store = useChrome.getState()
+    void window.omega.invoke('tab:list').then(store.setTabs).catch(() => undefined)
+    void window.omega.invoke('settings:get').then(store.setSettings).catch(() => undefined)
+    void window.omega.invoke('win:get-state').then(store.setWindowState).catch(() => undefined)
+  }, [])
+
+  /**
+   * Report the rect the page should occupy.
+   *
+   * This is measured from the live DOM rather than computed from a constant,
+   * because any disagreement between the two shows up as a visible overlap or
+   * gap. A ResizeObserver on the viewport element covers every cause of a
+   * layout change: window resize, sidebar toggle, find bar appearing.
+   */
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+
+    const report = (): void => {
+      const rect = el.getBoundingClientRect()
+      void window.omega
+        .invoke('view:bounds', {
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          visible: !pageHidden,
+        })
+        .catch(() => undefined)
+    }
+
+    report()
+    const observer = new ResizeObserver(report)
+    observer.observe(el)
+    window.addEventListener('resize', report)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', report)
+    }
+  }, [pageHidden])
+
+  return (
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-chrome-bg">
+      <TabStrip />
+      <Toolbar />
+
+      <div className="flex min-h-0 flex-1">
+        {/* The native WebContentsView is positioned over this element. */}
+        <div ref={viewportRef} className="relative min-w-0 flex-1">
+          {historyOpen ? (
+            <div className="absolute inset-0 z-10 bg-chrome-bg">
+              <HistoryPanel />
+            </div>
+          ) : null}
+          {settingsOpen ? (
+            <div className="absolute inset-0 z-10 bg-chrome-bg">
+              <SettingsPanel />
+            </div>
+          ) : null}
+        </div>
+
+        {sidebarOpen ? <Sidebar /> : null}
+      </div>
+
+      <PerfOverlay />
+      <Toast />
+    </div>
+  )
+}

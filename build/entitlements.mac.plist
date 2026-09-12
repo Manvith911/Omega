@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Chromium's V8 needs writable executable memory, and the renderer sandbox
+    requires the JIT allowance. Without these the app is killed on launch under
+    the hardened runtime.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!-- The browsing session fetches from the network. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!--
+    Requested on demand for origins the user has explicitly allowed. Declaring
+    them here is what makes the macOS permission prompt appear at all.
+  -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <key>com.apple.security.device.camera</key>
+  <true/>
+</dict>
+</plist>
