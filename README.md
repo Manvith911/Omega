@@ -176,7 +176,7 @@ appearing, with no special cases.
 
 ---
 
-## Layout
+## Layouts
 
 ```
 src/
