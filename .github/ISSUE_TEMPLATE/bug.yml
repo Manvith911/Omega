@@ -1,0 +1,53 @@
+name: Bug report
+description: Something isn't working as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please include the version from `npm ls electron` (or `electron --version` at the Electron prompt), your platform, and the steps that reproduce the issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: A clear description of the problem.
+      placeholder: "Describe the observed behaviour..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: The intended behaviour.
+      placeholder: "..."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Number them.
+      placeholder: "1. ...\n2. ...\n3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: "Paste any console output from the app (Electron logs are on stderr of the process)."
+      render: shell
+  - type: input
+    id: electron
+    attributes:
+      label: Electron version
+      placeholder: "44.3.0"
+      description: "From npm ls electron or the Electron prompt."
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "Windows 11 / macOS 14 / Ubuntu 24.04"
+    validations:
+      required: true

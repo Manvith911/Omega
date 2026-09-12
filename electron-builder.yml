@@ -1,0 +1,77 @@
+appId: com.omega.browser
+productName: Omega
+copyright: © 2026 Omega
+
+directories:
+  buildResources: build
+  output: release
+
+# Ship the built output and the manifest. Nothing else is needed: Omega has
+# zero runtime dependencies, so there is no node_modules to package at all.
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+  - '!**/{.eslintrc,.prettierrc,tsconfig*.json,electron.vite.config.*,postcss.config.*}'
+  - '!**/{test,__tests__,tests,spec,example,examples,docs,scripts}/**'
+  - '!**/*.{md,markdown,ts,tsx}'
+  - '!**/.{git,github,vscode,idea}/**'
+
+asar: true
+compression: maximum
+removePackageScripts: true
+npmRebuild: false
+
+# Chromium ships ~50 locale packs. Keeping only en-US removes roughly 45 MB of
+# installer, and nothing else here is loaded at runtime.
+electronLanguages:
+  - en-US
+
+win:
+  executableName: omega
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  shortcutName: Omega
+  artifactName: ${name}-${version}-setup.${ext}
+  differentialPackage: true
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    # The zip target is what auto-update consumes; the dmg alone is not enough.
+    - target: zip
+      arch: [arm64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Omega needs microphone access for sites you allow.
+    NSCameraUsageDescription: Omega needs camera access for sites you allow.
+    LSMinimumSystemVersion: '11.0'
+
+dmg:
+  artifactName: ${name}-${version}-${arch}.${ext}
+
+linux:
+  category: Network;WebBrowser
+  synopsis: A fast, private web browser
+  description: Omega is a Chromium-based browser built on Electron with per-tab process suspension, network-level ad blocking and a local-first page assistant.
+  target:
+    - AppImage
+    - deb
+  desktop:
+    entry:
+      Name: Omega
+      StartupWMClass: omega
+
+publish: null

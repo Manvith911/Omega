@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    allow:
+      - dependency-name: "electron"
+      - dependency-name: "electron-vite"
+      - dependency-name: "vite"
+      - dependency-name: "react"
+      - dependency-name: "tailwindcss"
+      - dependency-name: "electron-builder"
