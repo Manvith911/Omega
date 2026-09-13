@@ -91,5 +91,3 @@ linux:
     entry:
       Name: Omega
       StartupWMClass: omega
-
-publish: null
