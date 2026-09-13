@@ -1,8 +1,8 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { SEARCH_ENGINES } from '@shared/constants'
 import type { SearchEngineId, Settings } from '@shared/ipc'
 import { useChrome } from '../store'
-import { Close, Settings as SettingsIcon } from './Icons'
+import { Close, Settings as SettingsIcon, Sun, Moon as MoonIcon } from './Icons'
 
 type Row = { label: string; hint?: string; control: React.ReactNode }
 
@@ -44,6 +44,12 @@ export function SettingsPanel(): React.JSX.Element {
   const setSettings = useChrome((s) => s.setSettings)
   const setState = useChrome.setState
 
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+
+  useEffect(() => {
+    if (settings) setTheme(settings.theme)
+  }, [settings])
+
   const update = useCallback(
     (patch: Partial<Settings>) => {
       void window.omega.invoke('settings:set', patch).then(setSettings)
@@ -51,11 +57,44 @@ export function SettingsPanel(): React.JSX.Element {
     [setSettings],
   )
 
+  const toggleTheme = useCallback(() => {
+    const next: 'dark' | 'light' = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    void window.omega.invoke('settings:set', { theme: next })
+  }, [theme])
+
   if (!settings) {
     return <p className="p-6 text-[12px] text-chrome-dim">Loading settings…</p>
   }
 
   const rows: Row[] = [
+    {
+      label: 'Appearance',
+      hint: 'Choose between a dark and a light color scheme for the browser chrome.',
+      control: (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { if (theme === 'dark') toggleTheme() }}
+            className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-200 ${theme === 'dark' ? 'bg-chrome-accent text-white shadow-[0_0_12px_rgba(124,106,247,0.35)]' : 'bg-white/8 text-chrome-dim hover:bg-white/15 hover:shadow-sm'}`}
+            title="Dark theme"
+            aria-label="Select dark theme"
+          >
+            <MoonIcon className="h-4 w-4" />
+          </button>
+          <span className="text-[10px] text-chrome-dim font-medium">/</span>
+          <button
+            type="button"
+            onClick={() => { if (theme === 'light') toggleTheme() }}
+            className={`flex h-8 w-8 items-center justify-center rounded-full transition-all duration-200 ${theme === 'light' ? 'bg-chrome-accent text-white shadow-[0_0_12px_rgba(124,106,247,0.35)]' : 'bg-white/8 text-chrome-dim hover:bg-white/15 hover:shadow-sm'}`}
+            title="Light theme"
+            aria-label="Select light theme"
+          >
+            <Sun className="h-4 w-4" />
+          </button>
+        </div>
+      ),
+    },
     {
       label: 'Search engine',
       hint: 'Used when the address bar contains anything that is not an address.',

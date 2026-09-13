@@ -13,6 +13,7 @@ const DEFAULTS: Settings = {
   aiProvider: 'ollama',
   aiModel: 'llama3.2',
   aiEndpoint: 'http://127.0.0.1:11434/v1/chat/completions',
+  theme: 'dark',
 }
 
 /**

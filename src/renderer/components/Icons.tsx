@@ -165,6 +165,13 @@ export const Trash = (p: IconProps): React.JSX.Element => (
   </Base>
 )
 
+export const Sun = (p: IconProps): React.JSX.Element => (
+  <Base {...p}>
+    <circle cx="8" cy="8" r="3" {...stroke} />
+    <path d="M8 1.8v.8M8 13.4v.8M1.8 8h.8M13.4 8h.8M3 3l.8.8M12.2 12.2l.8.8M3 13l.8-.8M12.2 3.8l.8-.8" {...stroke} strokeWidth={1.4} />
+  </Base>
+)
+
 export const Settings = (p: IconProps): React.JSX.Element => (
   <Base {...p}>
     <circle cx="8" cy="8" r="2.2" {...stroke} />

@@ -84,14 +84,14 @@ export function Toolbar(): React.JSX.Element {
           disabled={!tab?.canGoBack}
           onClick={() => tabId !== null && void window.omega.invoke('nav:back', tabId)}
         >
-          <ChevronLeft className="h-4 w-4" />
+          {tab?.canGoBack ? <ChevronLeft className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4 opacity-30" />}
         </IconButton>
         <IconButton
           label="Forward"
           disabled={!tab?.canGoForward}
           onClick={() => tabId !== null && void window.omega.invoke('nav:forward', tabId)}
         >
-          <ChevronRight className="h-4 w-4" />
+          {tab?.canGoForward ? <ChevronRight className="h-4 w-4" /> : <ChevronRight className="h-4 w-4 opacity-30" />}
         </IconButton>
         <IconButton label={isLoading ? 'Stop' : 'Reload'} disabled={tabId === null} onClick={reloadOrStop}>
           {isLoading ? <Stop className="h-3.5 w-3.5" /> : <Reload className="h-4 w-4" />}

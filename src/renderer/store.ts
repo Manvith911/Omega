@@ -66,7 +66,10 @@ export const useChrome = create<ChromeState>((set) => ({
       tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, isActive: true } : t)),
     })),
 
-  setSettings: (settings) => set({ settings }),
+  setSettings: (settings) => {
+    document.body.classList.toggle('light', settings.theme === 'light')
+    return set({ settings })
+  },
   setWindowState: (windowState) => set({ windowState }),
   setToast: (toast) => set({ toast }),
   setFindOpen: (findOpen) => set({ findOpen }),

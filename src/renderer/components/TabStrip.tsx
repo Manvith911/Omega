@@ -12,7 +12,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { TAB_STRIP_HEIGHT } from '@shared/constants'
 import type { TabMeta } from '@shared/ipc'
 import { useChrome } from '../store'
-import { Close, Globe, Moon, Plus, Snowflake, Volume, VolumeMuted } from './Icons'
+import { Close, Globe, Moon as MoonIcon, Plus, Snowflake, Volume, VolumeMuted } from './Icons'
 import { WindowControls } from './WindowControls'
 
 function Tab({ tab }: { tab: TabMeta }): React.JSX.Element {
@@ -65,9 +65,9 @@ function Tab({ tab }: { tab: TabMeta }): React.JSX.Element {
       style={style}
       className={[
         'no-drag group relative flex h-[30px] min-w-[54px] max-w-[220px] flex-1 shrink-0 items-center gap-2',
-        'cursor-pointer rounded-t-[9px] border border-b-0 px-2.5 transition-colors duration-100',
+        'cursor-pointer rounded-t-[9px] border border-b-0 px-2.5 transition-all duration-150',
         tab.isActive
-          ? 'border-chrome-border bg-chrome-elevated text-chrome-fg'
+          ? 'border-chrome-border bg-chrome-elevated text-chrome-fg shadow-[0_1px_0_0_var(--color-chrome-border)]'
           : 'border-transparent bg-white/[0.03] text-chrome-muted hover:bg-white/[0.07] hover:text-chrome-fg/85',
       ].join(' ')}
       onClick={select}
@@ -110,7 +110,7 @@ function Tab({ tab }: { tab: TabMeta }): React.JSX.Element {
           className="shrink-0 text-chrome-dim"
           title={tab.lifecycle === 'frozen' ? 'Frozen — timers stopped' : 'Discarded — reloads on switch'}
         >
-          {tab.lifecycle === 'frozen' ? <Snowflake className="h-3 w-3" /> : <Moon className="h-3 w-3" />}
+          {tab.lifecycle === 'frozen' ? <Snowflake className="h-3 w-3" /> : <MoonIcon className="h-3 w-3" />}
         </span>
       ) : null}
 

@@ -195,10 +195,10 @@ export function Omnibox(): React.JSX.Element {
     <div ref={wrapRef} className="no-drag relative mx-auto w-full max-w-[760px] flex-1">
       <div
         className={[
-          'relative flex h-8 items-center gap-2 rounded-[10px] border px-2.5 transition-colors duration-150',
+          'relative flex h-8 items-center gap-2 rounded-[10px] border px-2.5 transition-all duration-150',
           focused
-            ? 'border-chrome-accent/60 bg-white/10'
-            : 'border-chrome-border bg-white/6 hover:bg-white/9',
+            ? 'border-chrome-accent/60 bg-white/[0.08] shadow-[0_0_0_1px_var(--color-chrome-accent)]/20'
+            : 'border-chrome-border bg-white/6 hover:bg-white/[0.09] hover:border-chrome-border/80',
         ].join(' ')}
       >
         {focused ? (
@@ -219,6 +219,7 @@ export function Omnibox(): React.JSX.Element {
           autoCorrect="off"
           autoCapitalize="off"
           placeholder="Search or enter an address"
+          title="Focus address bar (⌘L)"
           onChange={(event) => {
             setValue(event.target.value)
             query(event.target.value)
@@ -226,7 +227,7 @@ export function Omnibox(): React.JSX.Element {
           onFocus={onFocus}
           onBlur={onBlur}
           onKeyDown={onKeyDown}
-          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-chrome-fg outline-none placeholder:text-chrome-dim"
+          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-chrome-fg outline-none placeholder:text-chrome-dim transition-colors duration-150"
         />
 
         {isLoading && tabId !== null ? (

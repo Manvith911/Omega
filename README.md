@@ -191,11 +191,35 @@ src/
 
 ---
 
-## Packaging & release
+## First run & development
 
-The release pre-release-signing story is beyond scope for this README, but
-the intent was that `npm run build:win`, `:mac` or `:linux` produces a
-platform installer via `electron-builder`, configured in `electron-builder.yml`.
+### Prerequisites
+
+- **Node 20+** and npm (or your preferred package manager)
+- **Electron** is downloaded automatically on first `npm install` (~100 MB). On slower connections this can be the longest part of setup.
+
+### Getting started
+
+```bash
+npm install          # downloads Electron's ~100 MB binary
+npm run dev          # HMR for the chrome UI, auto-reload for main process
+```
+
+Then press `F12` (or use the menu) to open DevTools on the active tab if you need to debug a page.
+
+### What to do next
+
+| Task | How |
+| --- | --- |
+| Add a new tab | Click the `+` button or press `⌘T` / `Ctrl+T` |
+| Open settings | Click the gear icon or press `⌘,` / `Ctrl+,` |
+| Toggle dark/light theme | Open Settings → Appearance |
+| Enable ad blocking | Settings → Ad & tracker blocker |
+| Configure AI assistant | Settings → Assistant provider (Ollama is local and needs no key) |
+
+### Packaging & release
+
+`npm run build:win`, `:mac` or `:linux` produces a platform installer via `electron-builder`, configured in `electron-builder.yml`.
 
 1. **Windows**: produces `omega-<version>-setup.exe` (NSIS). The MSI target is
    available too.
@@ -212,6 +236,26 @@ The `electron-builder.yml` already references an Apple entitlements plist in
 `build/entitlements.mac.plist`. For a real signed release, code signing material
 (`CSC_LINK`, `CSC_KEY_PASSWORD` on Windows; signing identity on macOS) is
 configured outside the repo.
+
+### Release checklist
+
+Before publishing a release:
+
+1. **Update version** — edit `version` in `package.json`
+2. **Build** — `npm run build` (runs typecheck + bundle)
+3. **Test** — `npm run verify` (storage + freeze tests)
+4. **Package** — `npm run build:win` (or `:mac` / `:linux`)
+5. **Upload** — the installer appears in `dist/`
+
+For GitHub Releases, configure a GitHub token and use `electron-builder --publish always`.
+
+### Tips for first-time contributors
+
+- The chrome UI is React + Tailwind CSS v4. Edit files in `src/renderer/`.
+- The main process is plain TypeScript. Edit files in `src/main/`.
+- IPC channels are defined in `src/shared/ipc.ts` — the preload allowlist is derived from these.
+- Tab suspension logic is in `src/main/tab-manager.ts` and `src/main/tab-freezer.ts`.
+- The new tab page is `src/main/newtab-page.ts` (served over `omega://`).
 
 ---
 

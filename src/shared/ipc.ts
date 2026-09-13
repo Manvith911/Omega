@@ -169,6 +169,8 @@ export interface Settings {
   aiProvider: 'ollama' | 'openai'
   aiModel: string
   aiEndpoint: string
+  /** 'dark' or 'light' — drives the chrome color scheme. */
+  theme: 'dark' | 'light'
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
