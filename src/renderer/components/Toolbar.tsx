@@ -1,5 +1,5 @@
 import { useCallback } from 'react'
-import { TOOLBAR_HEIGHT } from '@shared/constants'
+import { HISTORY_PAGE_URL, SETTINGS_PAGE_URL, TOOLBAR_HEIGHT } from '@shared/constants'
 import { useActiveTab, useChrome } from '../store'
 import { FindBar } from './FindBar'
 import { ChevronLeft, ChevronRight, Clock, Reload, Settings, ShieldOff, Sparkles, Stop } from './Icons'
@@ -40,14 +40,16 @@ function IconButton({
   )
 }
 
-/** Only one full-content panel can be open, because each hides the page view. */
-function openPanel(panel: 'sidebar' | 'history' | 'settings' | null): void {
-  const state = useChrome.getState()
-  useChrome.setState({
-    sidebarOpen: panel === 'sidebar' ? !state.sidebarOpen : false,
-    historyOpen: panel === 'history' ? !state.historyOpen : false,
-    settingsOpen: panel === 'settings' ? !state.settingsOpen : false,
-  })
+/** Sidebar toggles chrome-local; settings and history open as real tabs. */
+function openPanel(panel: 'sidebar'): void {
+  if (panel === 'sidebar') {
+    const open = useChrome.getState().sidebarOpen
+    useChrome.setState({ sidebarOpen: !open })
+  }
+}
+
+function openPage(page: 'settings' | 'history'): void {
+  void window.omega.invoke('page:open', page)
 }
 
 export function Toolbar(): React.JSX.Element {
@@ -57,8 +59,7 @@ export function Toolbar(): React.JSX.Element {
 
   const findOpen = useChrome((s) => s.findOpen)
   const sidebarOpen = useChrome((s) => s.sidebarOpen)
-  const historyOpen = useChrome((s) => s.historyOpen)
-  const settingsOpen = useChrome((s) => s.settingsOpen)
+  const activeUrl = useActiveTab()?.url ?? ''
   const adBlockEnabled = useChrome((s) => s.settings?.adBlockEnabled ?? true)
 
   const reloadOrStop = useCallback(() => {
@@ -111,7 +112,7 @@ export function Toolbar(): React.JSX.Element {
           <ShieldOff className="h-4 w-4" />
         </IconButton>
 
-        <IconButton label="History" active={historyOpen} onClick={() => openPanel('history')}>
+        <IconButton label="History" active={activeUrl.startsWith(HISTORY_PAGE_URL)} onClick={() => openPage('history')}>
           <Clock className="h-4 w-4" />
         </IconButton>
 
@@ -119,7 +120,7 @@ export function Toolbar(): React.JSX.Element {
           <Sparkles className="h-4 w-4" />
         </IconButton>
 
-        <IconButton label="Settings" active={settingsOpen} onClick={() => openPanel('settings')}>
+        <IconButton label="Settings" active={activeUrl.startsWith(SETTINGS_PAGE_URL)} onClick={() => openPage('settings')}>
           <Settings className="h-4 w-4" />
         </IconButton>
       </div>

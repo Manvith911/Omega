@@ -1,7 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { HistoryPanel } from './components/HistoryPanel'
 import { PerfOverlay } from './components/PerfOverlay'
-import { SettingsPanel } from './components/SettingsPanel'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
 import { Toast } from './components/Toast'
@@ -12,15 +10,14 @@ export default function App(): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement>(null)
 
   const sidebarOpen = useChrome((s) => s.sidebarOpen)
-  const historyOpen = useChrome((s) => s.historyOpen)
-  const settingsOpen = useChrome((s) => s.settingsOpen)
 
   /**
-   * A full-content panel cannot be drawn over the page: native views always
-   * composite above the window's own webContents. So instead of covering the
-   * page, we hide it and let the panel use the freed space.
+   * History and settings are real tabs now (omega://app/history.html,
+   * omega://app/settings.html), so the page view is never hidden by a DOM
+   * panel. Only the AI sidebar — which lives beside the page, not over it —
+   * remains as chrome-managed UI.
    */
-  const pageHidden = historyOpen || settingsOpen
+  const pageHidden = false
 
   // ── Push events from the main process ──
   useEffect(() => {
@@ -90,16 +87,7 @@ export default function App(): React.JSX.Element {
       <div className="flex min-h-0 flex-1">
         {/* The native WebContentsView is positioned over this element. */}
         <div ref={viewportRef} className="relative min-w-0 flex-1">
-          {historyOpen ? (
-            <div className="absolute inset-0 z-10 bg-chrome-bg">
-              <HistoryPanel />
-            </div>
-          ) : null}
-          {settingsOpen ? (
-            <div className="absolute inset-0 z-10 bg-chrome-bg">
-              <SettingsPanel />
-            </div>
-          ) : null}
+          {sidebarOpen ? null : null}
         </div>
 
         {sidebarOpen ? <Sidebar /> : null}

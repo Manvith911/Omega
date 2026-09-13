@@ -16,7 +16,7 @@
  */
 
 import { BrowserWindow, WebContentsView, type WebContents } from 'electron'
-import { NEW_TAB_URL, ZOOM_STEPS } from '@shared/constants'
+import { HISTORY_PAGE_URL, NEW_TAB_URL, SETTINGS_PAGE_URL, ZOOM_STEPS } from '@shared/constants'
 import type { FindResult, TabCreatePayload, TabMeta, ViewRect } from '@shared/ipc'
 import { freeze, thaw } from './tab-freezer'
 import type { HistoryStore } from './history-store'
@@ -26,6 +26,14 @@ import { popupContextMenu } from './context-menu'
 import { isInternalUrl, prettyUrl, toNavigationUrl } from '@shared/url'
 
 const ZOOM_BASE = 1.2
+
+/** Tab-strip titles for the internal pages, which never fire page-title-updated. */
+function internalPageTitle(url: string): string {
+  if (url.startsWith(SETTINGS_PAGE_URL)) return 'Settings'
+  if (url.startsWith(HISTORY_PAGE_URL)) return 'History'
+  if (url.startsWith(NEW_TAB_URL)) return 'New Tab'
+  return prettyUrl(url) || 'Untitled'
+}
 
 interface TabEntry {
   id: number
@@ -129,6 +137,24 @@ export class TabManager {
       await this.activate(id)
     }
     return this.metaOf(entry)
+  }
+
+  /**
+   * Open an internal page (settings, history) as a tab — or focus the tab
+   * that already shows it. Chrome behaves the same way: one Settings tab per
+   * window, however many times you trigger the command.
+   */
+  async openOrFocusPage(page: 'settings' | 'history'): Promise<TabMeta | null> {
+    const target = page === 'settings' ? SETTINGS_PAGE_URL : HISTORY_PAGE_URL
+    const existing = [...this.tabs.values()].find((e) => e.meta.url === target)
+    if (existing) {
+      await this.activate(existing.id)
+      return this.metaOf(existing)
+    }
+    // Internal pages never enter the reopen-closed stack and are excluded
+    // from session snapshots by sessionSnapshot(), so restore-on-launch will
+    // not resurrect a stale settings tab.
+    return this.createTab({ url: target })
   }
 
   async closeTab(id: number): Promise<void> {
@@ -528,6 +554,10 @@ export class TabManager {
       meta.error = null
       if (httpResponseCode >= 400) meta.error = `HTTP ${httpResponseCode}`
       if (url !== NEW_TAB_URL) this.o.history.record(url, meta.title)
+      // Internal pages have no document title event, so derive one from the
+      // URL. Without this the strip shows the raw URL for the settings and
+      // history tabs.
+      if (isInternalUrl(url)) meta.title = internalPageTitle(url)
       this.markDirty(entry)
       this.send('nav:navigated', { tabId: entry.id, url })
     })

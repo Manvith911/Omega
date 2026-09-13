@@ -11,7 +11,8 @@ import { ArrowDown, ArrowUp, Close, Search } from './Icons'
  */
 export function FindBar(): React.JSX.Element {
   const setFindOpen = useChrome((s) => s.setFindOpen)
-  const [text, setText] = useState('')
+  /** Survives close/reopen within the session, like the omnibox draft. */
+  const [text, setText] = useState(() => sessionStorage.getItem('omega:find-text') ?? '')
   const [result, setResult] = useState<FindResult>({ matches: 0, active: 0 })
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -37,6 +38,7 @@ export function FindBar(): React.JSX.Element {
 
   const search = useCallback((value: string) => {
     setText(value)
+    sessionStorage.setItem('omega:find-text', value)
     if (value) void window.omega.invoke('find:start', value).then(setResult)
     else {
       stop()

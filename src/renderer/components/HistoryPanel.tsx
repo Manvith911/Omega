@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { HistoryEntry } from '@shared/ipc'
 import { prettyUrl } from '@shared/url'
-import { useChrome } from '../store'
 import { Close, Clock, Search, Trash } from './Icons'
 
 /** A malformed URL must not take the whole panel down. */
@@ -24,13 +23,18 @@ function groupLabel(timestamp: number): string {
   return then.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
+/**
+ * The History page — a real tab (omega://app/history.html), not a chrome
+ * overlay. Self-contained: loads its own history over the reduced page API,
+ * opens entries as navigations of its own tab, and closes itself.
+ */
 export function HistoryPanel(): React.JSX.Element {
-  const activeTabId = useChrome((s) => s.activeTabId)
-  const setState = useChrome.setState
-
   const [entries, setEntries] = useState<HistoryEntry[]>([])
   const [filter, setFilter] = useState('')
   const [loading, setLoading] = useState(true)
+  const [filterDraft, setFilterDraft] = useState('')
+
+  const tabId = window.omega.tabId
 
   const reload = useCallback(() => {
     void window.omega
@@ -62,10 +66,9 @@ export function HistoryPanel(): React.JSX.Element {
 
   const open = useCallback(
     (url: string) => {
-      if (activeTabId !== null) void window.omega.invoke('nav:go', { tabId: activeTabId, url })
-      setState({ historyOpen: false })
+      if (tabId !== null) void window.omega.invoke('nav:go', { tabId, url })
     },
-    [activeTabId, setState],
+    [tabId],
   )
 
   const remove = useCallback(
@@ -79,8 +82,12 @@ export function HistoryPanel(): React.JSX.Element {
     void window.omega.invoke('history:clear').then(reload)
   }, [reload])
 
+  const closeTab = useCallback(() => {
+    if (tabId !== null) void window.omega.invoke('tab:close', tabId)
+  }, [tabId])
+
   return (
-    <section className="flex h-full flex-col">
+    <section className="flex h-screen flex-col bg-chrome-bg">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-chrome-border px-4">
         <Clock className="h-4 w-4 text-chrome-accent" />
         <h1 className="text-[13px] font-medium">History</h1>
@@ -89,8 +96,11 @@ export function HistoryPanel(): React.JSX.Element {
         <div className="relative ml-auto flex h-7 w-64 items-center gap-1.5 rounded-lg border border-chrome-border bg-white/5 px-2">
           <Search className="h-3.5 w-3.5 shrink-0 text-chrome-dim" />
           <input
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
+            value={filterDraft}
+            onChange={(event) => {
+              setFilterDraft(event.target.value)
+              setFilter(event.target.value)
+            }}
             placeholder="Filter history"
             spellCheck={false}
             className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-chrome-dim"
@@ -111,7 +121,7 @@ export function HistoryPanel(): React.JSX.Element {
           type="button"
           aria-label="Close history"
           className="flex h-7 w-7 items-center justify-center rounded-lg text-chrome-muted hover:bg-white/10 hover:text-chrome-fg"
-          onClick={() => setState({ historyOpen: false })}
+          onClick={closeTab}
         >
           <Close className="h-3.5 w-3.5" />
         </button>

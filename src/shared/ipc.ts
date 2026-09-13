@@ -180,6 +180,7 @@ export interface Settings {
 export const INVOKE_CHANNELS = [
   // tabs
   'tab:create',
+  'page:open',
   'tab:close',
   'tab:close-others',
   'tab:switch',
@@ -230,6 +231,7 @@ export const INVOKE_CHANNELS = [
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]
 
 export interface InvokeMap {
+  'page:open': { args: [page: 'settings' | 'history']; result: TabMeta | null }
   'tab:create': { args: [payload?: TabCreatePayload]; result: TabMeta }
   'tab:close': { args: [tabId: number]; result: void }
   'tab:close-others': { args: [tabId: number]; result: void }
@@ -325,4 +327,11 @@ export interface OmegaApi {
   /** Static facts about the host, available without an IPC round trip. */
   readonly platform: 'darwin' | 'win32' | 'linux'
   readonly isOverlay: boolean
+  /**
+   * The tab this renderer surface belongs to, or null for chrome surfaces
+   * that are not tabs (the main window UI, the suggestions overlay).
+   * Delivered via an additional argument on the preload, not discoverable by
+   * page scripts through any API.
+   */
+  readonly tabId: number | null
 }

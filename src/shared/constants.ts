@@ -24,6 +24,14 @@ export const SUGGESTION_GAP = 6
 
 export const NEW_TAB_URL = 'omega://newtab'
 
+/**
+ * Internal chrome pages that open as real tabs (Chrome-style), not as DOM
+ * overlays hiding the page view. Served by the omega:// protocol from the
+ * renderer output; each entry has its own HTML + JS bundle.
+ */
+export const SETTINGS_PAGE_URL = 'omega://app/settings.html'
+export const HISTORY_PAGE_URL = 'omega://app/history.html'
+
 export const SEARCH_ENGINES = {
   google: { name: 'Google', url: 'https://www.google.com/search?q=' },
   duckduckgo: { name: 'DuckDuckGo', url: 'https://duckduckgo.com/?q=' },

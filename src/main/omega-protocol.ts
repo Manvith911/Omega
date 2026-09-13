@@ -140,6 +140,9 @@ function notFound(): Response {
 
 const CSP_NEWTAB = [
   "default-src 'none'",
+  // The draft-persistence snippet below is a small inline script maintained
+  // in this file; no external script is ever loaded on this page.
+  "script-src 'unsafe-inline'",
   "style-src 'unsafe-inline'",
   "img-src https: data:",
   "form-action https:",
@@ -261,8 +264,36 @@ function renderNewTab(settings: SettingsStore, history: HistoryStore): string {
   </div>
 
   <form action="${escapeHtml(engine.url)}" method="GET" role="search">
-    <input type="search" name="q" placeholder="Search ${escapeHtml(engine.name)} or enter an address" autofocus autocomplete="off" spellcheck="false" aria-label="Search" />
+    <input id="omega-q" type="search" name="q" placeholder="Search ${escapeHtml(engine.name)} or enter an address" autofocus autocomplete="off" spellcheck="false" aria-label="Search" />
   </form>
+
+  <script>
+    // Draft persistence: clicking anywhere else must not lose a half-typed
+    // query. Restored only while the query has not been submitted (a real
+    // navigation wipes sessionStorage on this origin-locked page).
+    (function () {
+      var input = document.getElementById('omega-q')
+      if (!input) return
+      var KEY = 'omega:newtab-draft'
+      var saved = null
+      try { saved = sessionStorage.getItem(KEY) } catch (e) { /* storage denied */ }
+      if (saved) input.value = saved
+      input.addEventListener('input', function () {
+        try { sessionStorage.setItem(KEY, input.value) } catch (e) { /* ignore */ }
+      })
+      // If the page came back via back/forward after a submit, the draft is
+      // stale — the URL bar shows the submitted query.
+      window.addEventListener('pageshow', function (event) {
+        if (event.persisted) {
+          try { sessionStorage.removeItem(KEY) } catch (e) { /* ignore */ }
+          input.value = ''
+        }
+      })
+      document.addEventListener('submit', function () {
+        try { sessionStorage.removeItem(KEY) } catch (e) { /* ignore */ }
+      })
+    })()
+  </script>
 
   ${tilesHtml ? `<div class="tiles">${tilesHtml}</div>` : ''}
 

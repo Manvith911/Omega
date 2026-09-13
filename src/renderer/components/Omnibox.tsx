@@ -49,6 +49,13 @@ export function Omnibox(): React.JSX.Element {
   const [focused, setFocused] = useState(false)
   const [itemCount, setItemCount] = useState(0)
   const [activeIndex, setActiveIndex] = useState(-1)
+  /**
+   * Uncommitted draft. `value` is reset to the page URL on blur (so the
+   * omnibox always reflects where you are), but what the user typed survives
+   * here: focusing the omnibox again restores the draft instead of silently
+   * discarding it, matching every mainstream browser.
+   */
+  const draftRef = useRef<string | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -66,6 +73,14 @@ export function Omnibox(): React.JSX.Element {
     setItemCount(0)
     setActiveIndex(-1)
   }, [tabUrl, focused, tabId])
+
+  // A committed navigation invalidates the draft: the user went somewhere on
+  // purpose, so a half-typed query from before must not resurface.
+  useEffect(() => {
+    return window.omega.on('nav:navigated', ({ tabId: changedId }) => {
+      if (changedId === tabId) draftRef.current = null
+    })
+  }, [tabId])
 
   const anchor = useCallback((): Rect => {
     const el = wrapRef.current
@@ -119,10 +134,14 @@ export function Omnibox(): React.JSX.Element {
   const onFocus = useCallback(() => {
     if (blurRef.current) clearTimeout(blurRef.current)
     setFocused(true)
-    // Pre-fill with the real URL so Enter re-navigates rather than searching
-    // the pretty form, then select it so typing replaces it.
-    setValue(tabUrl.startsWith('omega://') ? '' : tabUrl)
-    requestAnimationFrame(() => inputRef.current?.select())
+    // A half-typed query survives blurring: restore the draft instead of the
+    // raw URL. Only a genuinely empty draft falls back to the URL prefill.
+    const draft = draftRef.current
+    setValue(draft !== null && draft !== '' ? draft : tabUrl.startsWith('omega://') ? '' : tabUrl)
+    requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    })
   }, [tabUrl])
 
   const onBlur = useCallback(() => {
@@ -130,9 +149,12 @@ export function Omnibox(): React.JSX.Element {
       setFocused(false)
       setItemCount(0)
       setActiveIndex(-1)
+      // Park whatever was typed before the DOM shows the page URL again.
+      draftRef.current = value
+      setValue(prettyUrl(tabUrl))
       void window.omega.invoke('suggest:dismiss').catch(() => undefined)
     }, BLUR_GRACE_MS)
-  }, [])
+  }, [tabUrl, value])
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -195,10 +217,10 @@ export function Omnibox(): React.JSX.Element {
     <div ref={wrapRef} className="no-drag relative mx-auto w-full max-w-[760px] flex-1">
       <div
         className={[
-          'relative flex h-8 items-center gap-2 rounded-[10px] border px-2.5 transition-all duration-150',
+          'relative flex h-8 items-center gap-2 rounded-[10px] border px-2.5 transition-colors duration-150',
           focused
-            ? 'border-chrome-accent/60 bg-white/[0.08] shadow-[0_0_0_1px_var(--color-chrome-accent)]/20'
-            : 'border-chrome-border bg-white/6 hover:bg-white/[0.09] hover:border-chrome-border/80',
+            ? 'border-chrome-accent bg-white/[0.08] ring-1 ring-chrome-accent/45 ring-offset-0'
+            : 'border-chrome-border bg-white/6 hover:bg-white/[0.09]',
         ].join(' ')}
       >
         {focused ? (
@@ -222,6 +244,7 @@ export function Omnibox(): React.JSX.Element {
           title="Focus address bar (⌘L)"
           onChange={(event) => {
             setValue(event.target.value)
+            draftRef.current = event.target.value
             query(event.target.value)
           }}
           onFocus={onFocus}

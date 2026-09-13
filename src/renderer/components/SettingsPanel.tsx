@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { SEARCH_ENGINES } from '@shared/constants'
 import type { SearchEngineId, Settings } from '@shared/ipc'
-import { useChrome } from '../store'
 import { Close, Settings as SettingsIcon, Sun, Moon as MoonIcon } from './Icons'
 
 type Row = { label: string; hint?: string; control: React.ReactNode }
@@ -39,29 +38,43 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (next: boolean) => vo
 
 const MINUTE = 60_000
 
+/**
+ * The Settings page — a real tab (omega://app/settings.html), not a chrome
+ * overlay. Self-contained: loads its own settings over the reduced page API
+ * and closes its own tab when the user is done.
+ */
 export function SettingsPanel(): React.JSX.Element {
-  const settings = useChrome((s) => s.settings)
-  const setSettings = useChrome((s) => s.setSettings)
-  const setState = useChrome.setState
-
+  const [settings, setSettings] = useState<Settings | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
 
   useEffect(() => {
-    if (settings) setTheme(settings.theme)
-  }, [settings])
+    void window.omega
+      .invoke('settings:get')
+      .then((s) => {
+        setSettings(s)
+        setTheme(s.theme)
+        document.body.classList.toggle('light', s.theme === 'light')
+      })
+      .catch(() => undefined)
+  }, [])
 
-  const update = useCallback(
-    (patch: Partial<Settings>) => {
-      void window.omega.invoke('settings:set', patch).then(setSettings)
-    },
-    [setSettings],
-  )
+  const update = useCallback((patch: Partial<Settings>) => {
+    void window.omega
+      .invoke('settings:set', patch)
+      .then((next) => {
+        setSettings(next)
+        document.body.classList.toggle('light', next.theme === 'light')
+      })
+      .catch(() => undefined)
+  }, [])
 
   const toggleTheme = useCallback(() => {
-    const next: 'dark' | 'light' = theme === 'dark' ? 'light' : 'dark'
-    setTheme(next)
-    void window.omega.invoke('settings:set', { theme: next })
-  }, [theme])
+    update({ theme: theme === 'dark' ? 'light' : 'dark' })
+  }, [theme, update])
+
+  const closeTab = useCallback(() => {
+    if (window.omega.tabId !== null) void window.omega.invoke('tab:close', window.omega.tabId)
+  }, [])
 
   if (!settings) {
     return <p className="p-6 text-[12px] text-chrome-dim">Loading settings…</p>
@@ -194,7 +207,7 @@ export function SettingsPanel(): React.JSX.Element {
   ]
 
   return (
-    <section className="flex h-full flex-col">
+    <section className="flex h-screen flex-col bg-chrome-bg">
       <header className="flex h-11 shrink-0 items-center gap-3 border-b border-chrome-border px-4">
         <SettingsIcon className="h-4 w-4 text-chrome-accent" />
         <h1 className="text-[13px] font-medium">Settings</h1>
@@ -202,7 +215,7 @@ export function SettingsPanel(): React.JSX.Element {
           type="button"
           aria-label="Close settings"
           className="ml-auto flex h-7 w-7 items-center justify-center rounded-lg text-chrome-muted hover:bg-white/10 hover:text-chrome-fg"
-          onClick={() => setState({ settingsOpen: false })}
+          onClick={closeTab}
         >
           <Close className="h-3.5 w-3.5" />
         </button>

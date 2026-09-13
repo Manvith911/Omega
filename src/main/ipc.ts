@@ -39,6 +39,7 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('tab:create', (_e, payload: TabCreatePayload = {}) => tabs.createTab(payload))
+  ipcMain.handle('page:open', (_e, page: 'settings' | 'history') => tabs.openOrFocusPage(page))
   ipcMain.handle('tab:close', (_e, id: number) => tabs.closeTab(id))
   ipcMain.handle('tab:close-others', (_e, id: number) => tabs.closeOthers(id))
   ipcMain.handle('tab:switch', (_e, id: number) => tabs.activate(id))

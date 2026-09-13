@@ -7,11 +7,7 @@ export interface ChromeState {
   settings: Settings | null
   windowState: WindowState
 
-  // Panels. Only one full-content panel can be open at a time, because each
-  // one hides the native page view.
   sidebarOpen: boolean
-  historyOpen: boolean
-  settingsOpen: boolean
   findOpen: boolean
 
   toast: Toast | null
@@ -33,8 +29,6 @@ export const useChrome = create<ChromeState>((set) => ({
   settings: null,
   windowState: { maximized: false, fullscreen: false, platform: 'win32' },
   sidebarOpen: false,
-  historyOpen: false,
-  settingsOpen: false,
   findOpen: false,
   toast: null,
 
@@ -67,6 +61,7 @@ export const useChrome = create<ChromeState>((set) => ({
     })),
 
   setSettings: (settings) => {
+    // Theme follows the persisted setting whenever the chrome re-reads it.
     document.body.classList.toggle('light', settings.theme === 'light')
     return set({ settings })
   },
@@ -78,17 +73,13 @@ export const useChrome = create<ChromeState>((set) => ({
     set((state) => {
       switch (command) {
         case 'toggle-sidebar':
-          return { sidebarOpen: !state.sidebarOpen, historyOpen: false, settingsOpen: false }
-        case 'toggle-history':
-          return { historyOpen: !state.historyOpen, sidebarOpen: false, settingsOpen: false }
-        case 'open-settings':
-          return { settingsOpen: true, historyOpen: false, sidebarOpen: false }
+          return { sidebarOpen: !state.sidebarOpen }
         case 'open-find':
           return { findOpen: true }
-        case 'close-overlays':
-          return { historyOpen: false, settingsOpen: false, sidebarOpen: false, findOpen: false }
         case 'focus-omnibox':
         default:
+          // open-settings / toggle-history / close-overlays are handled in the
+          // main process now — they open real tabs, not chrome overlays.
           return {}
       }
     }),

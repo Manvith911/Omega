@@ -210,6 +210,14 @@ async function createWindow(): Promise<void> {
     toggleDevTools: () => tabs.getWebContents(activeId() ?? -1)?.openDevTools({ mode: 'detach' }),
     toggleUiDevTools: () => win.webContents.toggleDevTools(),
     command: (command) => {
+      if (command === 'open-settings') {
+        void tabs.openOrFocusPage('settings')
+        return
+      }
+      if (command === 'toggle-history') {
+        void tabs.openOrFocusPage('history')
+        return
+      }
       if (!win.webContents.isDestroyed()) win.webContents.send('ui:command', command)
     },
   })
