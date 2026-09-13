@@ -11,6 +11,9 @@ directories:
 files:
   - out/**/*
   - package.json
+  # Shipped so main/index.ts can hand it to BrowserWindow as the runtime
+  # taskbar icon on Windows/Linux. The installer/exe embed their own copies.
+  - build/icon.png
   - '!**/*.map'
   - '!**/{.eslintrc,.prettierrc,tsconfig*.json,electron.vite.config.*,postcss.config.*}'
   - '!**/{test,__tests__,tests,spec,example,examples,docs,scripts}/**'

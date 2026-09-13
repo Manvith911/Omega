@@ -12,6 +12,7 @@
  */
 
 import { BrowserWindow, app, session, shell } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from '@shared/constants'
 import { AdBlocker } from './ad-blocker'
@@ -32,6 +33,12 @@ import { TabManager } from './tab-manager'
 applyCommandLineFlags(app)
 registerOmegaScheme()
 
+// Windows groups taskbar buttons and Start-menu pins by AppUserModelID, and
+// falls back to the host exe path when none is set — which in dev means every
+// Omega window groups under electron.exe. Matching the installer's appId
+// keeps the running window, pinned shortcut and installer under one identity.
+if (process.platform === 'win32') app.setAppUserModelId('com.omega.browser')
+
 const isDev = !!process.env['ELECTRON_RENDERER_URL']
 
 /** Resolved from the app root so it works identically in dev and in an asar. */
@@ -43,6 +50,13 @@ const PRELOAD_PATH = join(APP_ROOT, 'out', 'preload', 'index.cjs')
  * so it has a real origin and receives the CSP as a response header.
  */
 const RENDERER_ROOT = join(APP_ROOT, 'out', 'renderer')
+
+/**
+ * Window/taskbar icon for Windows and Linux. macOS ignores window icons — its
+ * dock icon comes from the app bundle instead. Packaged builds ship the file
+ * inside the asar (see electron-builder.yml); dev reads it from the repo.
+ */
+const WINDOW_ICON_PATH = join(APP_ROOT, 'build', 'icon.png')
 
 function rendererEntry(page: 'index' | 'overlay'): string {
   if (isDev) return `${process.env['ELECTRON_RENDERER_URL']}/${page}.html`
@@ -92,6 +106,12 @@ async function createWindow(): Promise<void> {
     ...(isMac
       ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 14, y: 13 } }
       : { frame: false }),
+    // Taskbar/alt-tab icon on win+linux. Guarded so a missing file (e.g. a
+    // source checkout without generated icons) degrades to the platform
+    // default instead of warning on every window creation.
+    ...(process.platform !== 'darwin' && existsSync(WINDOW_ICON_PATH)
+      ? { icon: WINDOW_ICON_PATH }
+      : {}),
     backgroundColor: '#0f0f17',
     autoHideMenuBar: true,
     webPreferences: {
