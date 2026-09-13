@@ -1,6 +1,6 @@
 {
   "name": "omega",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Omega - a fast, private desktop web browser",
   "main": "./out/main/index.js",
   "desktopName": "omega.desktop",
