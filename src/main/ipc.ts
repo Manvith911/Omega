@@ -11,8 +11,9 @@
  * one-frame stalls.
  */
 
-import { ipcMain, dialog, type BrowserWindow } from 'electron'
+import { ipcMain, dialog, Menu, type BrowserWindow } from 'electron'
 import type { Rect, Settings, TabCreatePayload, ViewRect } from '@shared/ipc'
+import { SETTINGS_PAGE_URL } from '@shared/constants'
 import type { AdBlocker } from './ad-blocker'
 import type { AiService } from './ai'
 import type { DownloadsManager } from './downloads'
@@ -63,6 +64,24 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle('tab:duplicate', (_e, id: number) => tabs.duplicate(id))
   ipcMain.handle('tab:reopen', () => tabs.reopen())
   ipcMain.handle('tab:mute', (_e, id: number, muted: boolean) => tabs.setMuted(id, muted))
+  ipcMain.handle('tab:menu', (_e, id: number, position: { x: number; y: number }) => {
+    const meta = tabs.getMeta(id)
+    if (!meta) return
+    const template: Electron.MenuItemConstructorOptions[] = [
+      { label: 'Duplicate Tab', click: () => void tabs.duplicate(id) },
+      { type: 'separator' },
+      { label: meta.isMuted ? 'Unmute Tab' : 'Mute Tab', click: () => tabs.setMuted(id, !meta.isMuted) },
+      { type: 'separator' },
+      { label: 'Close Tab', click: () => void tabs.closeTab(id) },
+      { label: 'Close Other Tabs', click: () => void tabs.closeOthers(id) },
+    ]
+    Menu.buildFromTemplate(template).popup({
+      window: win,
+      // The renderer's CSS pixels match the window's DIP coordinates.
+      x: Math.round(position.x),
+      y: Math.round(position.y),
+    })
+  })
 
   // ── Navigation ────────────────────────────────────────────────────────────
 
@@ -131,6 +150,18 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle('settings:set', (_e, patch: Partial<Settings>): Settings => {
     const next = settings.set(patch)
     if (typeof patch.adBlockEnabled === 'boolean') adBlock.setEnabled(patch.adBlockEnabled)
+    // Every surface showing settings must learn about the change: the chrome
+    // window (toolbar ad-block state) and any tab on the settings page.
+    const targets: Electron.WebContents[] = [win.webContents]
+    for (const tab of tabs.getAllTabs()) {
+      if (tab.url === SETTINGS_PAGE_URL) {
+        const wc = tabs.getWebContents(tab.id)
+        if (wc) targets.push(wc)
+      }
+    }
+    for (const wc of targets) {
+      if (!wc.isDestroyed()) wc.send('settings:changed', next)
+    }
     return next
   })
 

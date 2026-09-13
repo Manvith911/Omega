@@ -56,6 +56,13 @@ export function SettingsPanel(): React.JSX.Element {
         document.body.classList.toggle('light', s.theme === 'light')
       })
       .catch(() => undefined)
+    // Keep this page in sync when another surface changes settings (e.g. the
+    // toolbar's ad-block toggle) instead of showing a stale view.
+    return window.omega.on('settings:changed', (next) => {
+      setSettings(next)
+      setTheme(next.theme)
+      document.body.classList.toggle('light', next.theme === 'light')
+    })
   }, [])
 
   const update = useCallback((patch: Partial<Settings>) => {

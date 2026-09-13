@@ -14,7 +14,7 @@
 import { BrowserWindow, app, session, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from '@shared/constants'
+import { DOWNLOADS_PAGE_URL, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from '@shared/constants'
 import { AdBlocker } from './ad-blocker'
 import { AiService } from './ai'
 import { applyCommandLineFlags } from './app-flags'
@@ -96,7 +96,23 @@ async function createWindow(): Promise<void> {
   adBlock.initialize()
 
   // ── Downloads land in the user's Downloads folder, tracked for the page ──
-  const downloads = new DownloadsManager(tabSession, () => mainWindow, app.getPath('downloads'))
+  // The target list is built lazily: the tab manager does not exist yet here,
+  // and the downloads page lives in a tab view, not the chrome window.
+  const downloads = new DownloadsManager(
+    tabSession,
+    () => {
+      const targets: Electron.WebContents[] = []
+      if (mainWindow && !mainWindow.isDestroyed()) targets.push(mainWindow.webContents)
+      for (const tab of tabs?.getAllTabs() ?? []) {
+        if (tab.url === DOWNLOADS_PAGE_URL) {
+          const wc = tabs.getWebContents(tab.id)
+          if (wc) targets.push(wc)
+        }
+      }
+      return targets
+    },
+    app.getPath('downloads'),
+  )
   downloads.attach()
 
   // ── Extensions load into the tab session; folders persist in settings ──

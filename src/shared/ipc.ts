@@ -224,6 +224,7 @@ export const INVOKE_CHANNELS = [
   'tab:duplicate',
   'tab:reopen',
   'tab:mute',
+  'tab:menu',
   // navigation
   'nav:go',
   'nav:back',
@@ -289,6 +290,7 @@ export interface InvokeMap {
   'tab:duplicate': { args: [tabId: number]; result: TabMeta | null }
   'tab:reopen': { args: []; result: TabMeta | null }
   'tab:mute': { args: [tabId: number, muted: boolean]; result: void }
+  'tab:menu': { args: [tabId: number, position: { x: number; y: number }]; result: void }
   'nav:go': { args: [payload: NavPayload]; result: void }
   'nav:back': { args: [tabId: number]; result: void }
   'nav:forward': { args: [tabId: number]; result: void }
@@ -322,7 +324,7 @@ export interface InvokeMap {
   'extensions:list': { args: []; result: ExtensionInfo[] }
   'extensions:load': { args: []; result: ExtensionInfo }
   'extensions:remove': { args: [id: string]; result: boolean }
-  'extensions:set-enabled': { args: [id: string, enabled: boolean]; result: void }
+  'extensions:set-enabled': { args: [id: string, enabled: boolean]; result: ExtensionInfo | null }
   'page:kind': { args: []; result: 'settings' | 'history' | 'downloads' | 'extensions' | 'other' }
   'ai:extract': { args: [tabId: number]; result: PageContent | null }
   'ai:ask': { args: [tabId: number, prompt: string]; result: string }
@@ -348,6 +350,7 @@ export const EVENT_CHANNELS = [
   'toast',
   'ui:command',
   'downloads:updated',
+  'settings:changed',
 ] as const
 
 export type EventChannel = (typeof EVENT_CHANNELS)[number]
@@ -369,6 +372,7 @@ export interface EventMap {
   'toast': Toast
   'ui:command': UiCommand
   'downloads:updated': DownloadInfo[]
+  'settings:changed': Settings
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

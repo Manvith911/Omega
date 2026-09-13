@@ -63,11 +63,18 @@ export function popupContextMenu(
     template.push({ label: 'Back', click: actions.onBack }, { type: 'separator' })
   }
 
+  const pageUrl = wc.getURL()
+  // Internal pages (omega://, about:blank, devtools) have no meaning outside
+  // the browser; handing them to the OS either fails silently or opens
+  // whatever handler the user has for an unrelated scheme.
+  const openExternalAllowed = /^https?:/.test(pageUrl)
   template.push(
     { label: 'Reload', click: actions.onReload },
     { type: 'separator' },
-    { label: 'Copy Page Address', enabled: !wc.getURL().startsWith('devtools://'), click: () => clipboard.writeText(wc.getURL()) },
-    { label: 'Open in Default Browser', click: () => void shell.openExternal(wc.getURL()) },
+    { label: 'Copy Page Address', click: () => clipboard.writeText(pageUrl) },
+    ...(openExternalAllowed
+      ? [{ label: 'Open in Default Browser', click: () => void shell.openExternal(pageUrl) }]
+      : []),
     { type: 'separator' },
     { label: 'Inspect Element', click: actions.onInspect },
   )

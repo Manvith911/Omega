@@ -33,6 +33,9 @@ export default function App(): React.JSX.Element {
       window.omega.on('ui:command', store.applyCommand),
       window.omega.on('toast', store.setToast),
       window.omega.on('downloads:updated', store.setDownloads),
+      // setSettings also re-applies the theme class, so a change made on the
+      // Settings page re-skins the chrome immediately.
+      window.omega.on('settings:changed', store.setSettings),
     ]
     return () => unsubscribe.forEach((off) => off())
   }, [])

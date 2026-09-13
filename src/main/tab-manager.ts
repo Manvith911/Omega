@@ -399,6 +399,12 @@ export class TabManager {
     return this.activeId
   }
 
+  /** Metadata for one tab, or null when the id is unknown. */
+  getMeta(tabId: number): TabMeta | null {
+    const entry = this.tabs.get(tabId)
+    return entry ? this.metaOf(entry) : null
+  }
+
   /** URLs to restore on next launch, in strip order. */
   sessionSnapshot(): string[] {
     return this.order
@@ -499,6 +505,18 @@ export class TabManager {
     view.setBackgroundColor('#11111b')
     entry.view = view
     entry.crashed = false
+
+    // A re-materialized renderer (after discard or crash) starts unmuted at
+    // 100% zoom. The tab's state says otherwise, and the strip would show a
+    // mute icon that does nothing — so carry both across.
+    if (entry.meta.isMuted) {
+      const wc = view.webContents
+      if (!wc.isDestroyed()) wc.setAudioMuted(true)
+    }
+    if (entry.zoomFactor !== 1) {
+      const wc = view.webContents
+      if (!wc.isDestroyed()) wc.setZoomLevel(Math.log(entry.zoomFactor) / Math.log(ZOOM_BASE))
+    }
 
     this.o.win.contentView.addChildView(view)
     entry.attached = true

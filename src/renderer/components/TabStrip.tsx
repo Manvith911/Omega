@@ -52,7 +52,7 @@ function Tab({ tab }: { tab: TabMeta }): React.JSX.Element {
   const onContextMenu = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault()
-      void window.omega.invoke('tab:close-others', tab.id)
+      void window.omega.invoke('tab:menu', tab.id, { x: event.clientX, y: event.clientY })
     },
     [tab.id],
   )

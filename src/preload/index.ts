@@ -83,7 +83,7 @@ const PAGE_ALLOWED_INVOKES = new Set<string>([
   'extensions:remove',
   'extensions:set-enabled',
 ])
-const PAGE_ALLOWED_EVENTS = new Set<string>(['toast', 'downloads:updated'])
+const PAGE_ALLOWED_EVENTS = new Set<string>(['toast', 'downloads:updated', 'settings:changed'])
 
 /**
  * Whether this tab renderer is currently showing an Omega page rather than

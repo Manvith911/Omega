@@ -15,7 +15,7 @@
  *    Chrome behaves the same way.
  */
 
-import { shell, type BrowserWindow, type DownloadItem, type Session } from 'electron'
+import { shell, type DownloadItem, type Session, type WebContents } from 'electron'
 import { existsSync, mkdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
@@ -40,7 +40,12 @@ export class DownloadsManager {
 
   constructor(
     private readonly session: Session,
-    private readonly getWindow: () => BrowserWindow | null,
+    /**
+     * Every WebContents that should receive live download updates: the chrome
+     * window (toolbar badge) and any tab currently showing the downloads page.
+     * Lazy because the tab manager does not exist yet when this is wired up.
+     */
+    private readonly getTargets: () => WebContents[],
     /** Defaults to the user's Downloads folder. */
     private readonly dir: string,
   ) {}
@@ -106,7 +111,11 @@ export class DownloadsManager {
   async open(id: string): Promise<boolean> {
     const rec = this.items.get(id)
     if (!rec || rec.state !== 'completed' || !existsSync(rec.path)) return false
-    return shell.openPath(rec.path).then(() => true, () => false)
+    // openPath RESOLVES with an error string ('' on success) — it does not
+    // reject. Treating the resolution itself as success reported every
+    // failure as a success.
+    const err = await shell.openPath(rec.path)
+    return err === ''
   }
 
   /** Reveals the file in the platform file manager. */
@@ -144,10 +153,10 @@ export class DownloadsManager {
     }
   }
 
-  /** Pushes the list to the chrome UI; the page also re-fetches on open. */
+  /** Pushes the list to the chrome UI and to any open downloads page. */
   private push(): void {
-    const win = this.getWindow()
-    if (!win || win.webContents.isDestroyed()) return
-    win.webContents.send('downloads:updated', this.list())
+    for (const wc of this.getTargets()) {
+      if (!wc.isDestroyed()) wc.send('downloads:updated', this.list())
+    }
   }
 }
