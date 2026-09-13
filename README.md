@@ -20,6 +20,12 @@ the suspension tiers against a live interval in a real `WebContentsView` — it
 is the only way to confirm the freezing mechanism actually works, because a
 failure there is silent.
 
+Icons are generated, not hand-drawn: `npm run icons` renders the Omega mark
+(violet ring + dot) into `build/icon.png`, `build/icon.ico` and
+`build/icon.icns` with a dependency-free rasteriser in
+`scripts/generate-icons.cjs`. electron-builder picks all three up from
+`build/` automatically — run it if the brand mark ever changes.
+
 Zero runtime dependencies. No native modules, no `node-gyp`, no
 `electron-rebuild` — storage uses `node:sqlite`, which ships inside Electron's
 own Node 24 runtime.
