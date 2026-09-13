@@ -1,58 +1,108 @@
-name: draft release
+name: Release
 
+# Building on tag push (v*) keeps release artifacts tied to an exact commit.
+# Workflow dispatch exists so a build can be re-run without moving the tag.
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build (e.g. v0.1.0) — required for dispatch'
+        required: true
+        type: string
+
+permissions:
+  contents: write # required to create the release and upload assets
 
 jobs:
-  draft:
-    runs-on: windows-latest
-    # main purpose is to demonstrate that the unsigned installer carries all
-    # content, can be downloaded, and runs the test suite on its own machine.
-    env:
-      NODE_ENV: production
-    steps:
-      - uses: actions/checkout@v4
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win --x64
+          - os: macos-latest
+            args: --mac --arm64
+          - os: ubuntu-latest
+            args: --linux
 
-      - name: setup node
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@v4
+        with:
+          # The tag must exist even on workflow_dispatch; the input only decides
+          # which release the artifacts attach to at the end.
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Node 20
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
           cache: npm
 
-      - name: install
-        run: npm ci --no-audit --no-fund
+      - name: Install dependencies
+        run: npm ci
 
-      - name: postinstall
-        run: npm run postinstall
+      # npm 12 skips dependency install scripts, so Electron's binary may be
+      # missing after `npm ci` — the same problem scripts/ensure-electron.cjs
+      # solves locally. One explicit line beats relying on npm flags.
+      - name: Ensure Electron binary
+        run: node scripts/ensure-electron.cjs
 
-      - name: verify storage
-        run: npm run verify:storage
+      - name: Typecheck and bundle
+        run: npm run build
 
-      - name: verify freeze
-        run: npm run verify:freeze
-
-      - name: build
-        run: npx electron-vite build
-
-      - name: run typecheck
-        run: npm run typecheck
-
-      - name: package
-        run: npx electron-builder --win --publish never
-
-      - name: list artifacts
-        run: |
-          powershell -Command 'Get-ChildItem -Path release -Recurse | Select-Object FullName,Length | Sort-Object Length -Descending | Format-Table -AutoSize'
-
-      - name: write release notes
-        run: |
-          gh release create ${{ github.ref_name }} --draft --title "Omega ${{ github.ref_name }}" --notes-file - <<EOF
-            Built from ${{ github.sha }}. Test suite ran: storage and freeze verification, then a build and typecheck.
-
-            To install locally, download the `.exe` and run it to install Omega, then launch it.
-            To build macOS or Linux, run `npm run build:mac` or `npm run build:linux`.
-          EOF
+      - name: Build installers
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Skip macOS code signing on CI — there is no signing identity in the
+          # repo secrets, and electron-builder fails hard without this flag.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder ${{ matrix.args }} --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: omega-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Attach artifacts to release
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: artifacts
+
+      - name: Attach installers to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          # The release (and its notes) already exists for this tag; this only
+          # appends the installer files to it.
+          generate_release_notes: false
+          append_body: false
+          files: |
+            artifacts/*.exe
+            artifacts/*.dmg
+            artifacts/*.zip
+            artifacts/*.AppImage
+            artifacts/*.deb
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
