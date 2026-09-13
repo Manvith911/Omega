@@ -95,9 +95,18 @@ async function createWindow(): Promise<void> {
 
   const isMac = process.platform === 'darwin'
 
+  // Restore the window as the user left it: normal bounds, maximized, or
+  // fullscreen. Fullscreen is the case people notice when it is missing —
+  // F11 and reopen should behave like every mainstream browser.
+  const saved = settings.get().windowState
+  const savedBounds = saved?.bounds
+  const restoredWidth = savedBounds?.width ?? 1360
+  const restoredHeight = savedBounds?.height ?? 860
+
   const win = new BrowserWindow({
-    width: 1360,
-    height: 860,
+    width: restoredWidth,
+    height: restoredHeight,
+    ...(savedBounds ? { x: savedBounds.x, y: savedBounds.y } : {}),
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     show: false,
@@ -134,6 +143,7 @@ async function createWindow(): Promise<void> {
     preloadPath: PRELOAD_PATH,
     history,
     settings,
+    devOrigin: isDev ? (process.env['ELECTRON_RENDERER_URL'] ?? null) : null,
     bringOverlayToFront: () => overlay.front(),
     toast: (kind, message) => {
       if (!win.webContents.isDestroyed()) win.webContents.send('toast', { kind, message })
@@ -228,10 +238,34 @@ async function createWindow(): Promise<void> {
   win.on('unmaximize', emitWindowState)
   win.on('enter-full-screen', emitWindowState)
   win.on('leave-full-screen', emitWindowState)
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    // Apply the persisted mode after the normal bounds are set but before the
+    // window paints, so the user never sees a wrong-sized flash.
+    if (saved?.maximized && !saved.fullscreen) win.maximize()
+    if (saved?.fullscreen) win.setFullScreen(true)
+    win.show()
+  })
   win.on('closed', () => {
     mainWindow = null
   })
+
+  // Persist window state as it changes AND on close. The close-time save is
+  // the one that matters for fullscreen: if the OS already left fullscreen
+  // during teardown, the change events would have recorded a stale value.
+  const persistWindowState = (): void => {
+    if (win.isDestroyed()) return
+    const fullscreen = win.isFullScreen()
+    const maximized = win.isMaximized()
+    // Only normal-mode bounds are worth remembering; restoring maximized
+    // bounds re-triggers a maximize animation on some platforms.
+    const bounds = !fullscreen && !maximized ? win.getBounds() : undefined
+    settings.set({ windowState: { fullscreen, maximized, bounds } })
+  }
+  win.on('enter-full-screen', persistWindowState)
+  win.on('leave-full-screen', persistWindowState)
+  win.on('maximize', persistWindowState)
+  win.on('unmaximize', persistWindowState)
+  win.on('close', persistWindowState)
 
   // ── Load the chrome ──
   // Surface renderer load failures instead of leaving a blank window with no

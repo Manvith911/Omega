@@ -63,6 +63,11 @@ export interface TabManagerOptions {
   /** Re-stack the suggestions overlay above the page views. */
   bringOverlayToFront: () => void
   toast: (kind: 'info' | 'error', message: string) => void
+  /**
+   * Dev-server origin chrome pages load from under electron-vite dev, so the
+   * preload's origin gate recognises internal pages. Null in packaged builds.
+   */
+  devOrigin: string | null
 }
 
 export class TabManager {
@@ -469,7 +474,10 @@ export class TabManager {
         v8CacheOptions: 'code',
         // Never let a page start audio before the user interacts with it.
         autoplayPolicy: 'document-user-activation-required',
-        additionalArguments: [`--omega-tab=${entry.id}`],
+        additionalArguments: [
+          `--omega-tab=${entry.id}`,
+          ...(this.o.devOrigin ? [`--omega-dev-origin=${this.o.devOrigin}`] : []),
+        ],
       },
     })
 
@@ -553,7 +561,8 @@ export class TabManager {
       meta.canGoForward = wc.navigationHistory.canGoForward()
       meta.error = null
       if (httpResponseCode >= 400) meta.error = `HTTP ${httpResponseCode}`
-      if (url !== NEW_TAB_URL) this.o.history.record(url, meta.title)
+      // Internal pages are chrome, not browsing history.
+      if (!isInternalUrl(url)) this.o.history.record(url, meta.title)
       // Internal pages have no document title event, so derive one from the
       // URL. Without this the strip shows the raw URL for the settings and
       // history tabs.

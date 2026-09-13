@@ -14,7 +14,7 @@ const DEFAULTS: Settings = {
   aiModel: 'llama3.2',
   aiEndpoint: 'http://127.0.0.1:11434/v1/chat/completions',
   theme: 'dark',
-}
+} as Settings
 
 /**
  * Small, synchronous, and read once at boot. A settings file is a handful of

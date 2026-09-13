@@ -171,6 +171,16 @@ export interface Settings {
   aiEndpoint: string
   /** 'dark' or 'light' — drives the chrome color scheme. */
   theme: 'dark' | 'light'
+  /** Window geometry + fullscreen/maximized state, restored on launch. */
+  windowState?: PersistedWindowState
+}
+
+/** Shape saved to settings.json between runs. Optional for older files. */
+export interface PersistedWindowState {
+  fullscreen: boolean
+  maximized: boolean
+  /** Normal (non-maximized, non-fullscreen) bounds in DIP. */
+  bounds?: { x: number; y: number; width: number; height: number }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

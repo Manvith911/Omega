@@ -49,10 +49,15 @@ const TAB_ID: number | null = (() => {
 /**
  * Surfaces that render web content must not hold the full chrome API: a
  * compromised page would get tab control, history access and settings writes
- * for free. The internal chrome pages (settings, history) get a reduced
- * surface; arbitrary web pages get nothing at all beyond an inert tabId.
+ * for free. Tab renderers are gated per call — see isOmegaPageSurface().
  */
-const IS_WEB_CONTENT = TAB_ID !== null && !IS_OVERLAY && !process.argv.includes('--omega-page')
+const IS_TAB = TAB_ID !== null && !IS_OVERLAY
+
+/** Dev server origin for chrome surfaces, when running under electron-vite dev. */
+const DEV_ORIGIN: string | null = (() => {
+  const arg = process.argv.find((a) => a.startsWith('--omega-dev-origin='))
+  return arg ? arg.slice('--omega-dev-origin='.length) : null
+})()
 
 const OVERLAY_ALLOWED_INVOKES = new Set<string>(['suggest:select', 'suggest:highlight', 'suggest:dismiss'])
 const OVERLAY_ALLOWED_EVENTS = new Set<string>(['suggest:state'])
@@ -70,18 +75,40 @@ const PAGE_ALLOWED_INVOKES = new Set<string>([
 ])
 const PAGE_ALLOWED_EVENTS = new Set<string>(['toast'])
 
+/**
+ * Whether this tab renderer is currently showing an Omega page rather than
+ * web content. Evaluated at CALL time on purpose: one renderer hosts the
+ * settings page now and https://example.com after a navigation, so a
+ * load-time decision cannot be correct. Omega origins are `omega://` in
+ * packaged builds and the dev server origin under electron-vite dev.
+ */
+function isOmegaPageSurface(): boolean {
+  try {
+    // Sandboxed preloads do have `location` at runtime; the node tsconfig
+    // simply does not type DOM globals, hence the narrow cast.
+    const href = (globalThis as { location?: { href?: string } }).location?.href ?? ''
+    if (!href) return false
+    const url = new URL(href)
+    if (url.protocol === 'omega:') return true
+    if (DEV_ORIGIN && url.origin === DEV_ORIGIN) return true
+  } catch {
+    /* URL unreadable — treat as web content */
+  }
+  return false
+}
+
 function allowedInvoke(channel: string): boolean {
   if (!INVOKE_ALLOWLIST.has(channel)) return false
   if (IS_OVERLAY) return OVERLAY_ALLOWED_INVOKES.has(channel)
-  // Web pages: nothing. Chrome pages: the reduced set.
-  if (IS_WEB_CONTENT) return PAGE_ALLOWED_INVOKES.has(channel)
+  // Tab renderers: Omega pages get the reduced set, web content gets nothing.
+  if (IS_TAB) return isOmegaPageSurface() && PAGE_ALLOWED_INVOKES.has(channel)
   return true
 }
 
 function allowedEvent(channel: string): boolean {
   if (!EVENT_ALLOWLIST.has(channel)) return false
   if (IS_OVERLAY) return OVERLAY_ALLOWED_EVENTS.has(channel)
-  if (IS_WEB_CONTENT) return PAGE_ALLOWED_EVENTS.has(channel)
+  if (IS_TAB) return isOmegaPageSurface() && PAGE_ALLOWED_EVENTS.has(channel)
   return true
 }
 

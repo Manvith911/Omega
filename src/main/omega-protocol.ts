@@ -25,6 +25,7 @@ import { existsSync } from 'node:fs'
 import { extname, normalize, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PROD_UI_CSP, SEARCH_ENGINES } from '@shared/constants'
+import { toNavigationUrl } from '@shared/url'
 import type { HistoryStore } from './history-store'
 import type { SettingsStore } from './settings-store'
 
@@ -103,6 +104,16 @@ function createHandler(
           'cache-control': 'no-store',
         },
       })
+    }
+
+    // omega://search?q=... resolves the search engine AT REQUEST TIME, so a
+    // new tab page that was already open before the engine changed still
+    // submits to the engine the user picked — not the one baked into its form
+    // when it was rendered.
+    if (url.hostname === 'search') {
+      const query = (url.searchParams.get('q') ?? '').trim()
+      if (!query) return notFound()
+      return Response.redirect(toNavigationUrl(query, settings.get().searchEngine), 302)
     }
 
     if (url.hostname !== 'app') return notFound()
@@ -263,7 +274,10 @@ function renderNewTab(settings: SettingsStore, history: HistoryStore): string {
     <span>Omega</span>
   </div>
 
-  <form action="${escapeHtml(engine.url)}" method="GET" role="search">
+  <!-- Action is omega://search, not the engine directly: the redirect
+       resolves the engine at submit time, so an already-open new tab page
+       follows a later engine change. -->
+  <form action="omega://search" method="GET" role="search">
     <input id="omega-q" type="search" name="q" placeholder="Search ${escapeHtml(engine.name)} or enter an address" autofocus autocomplete="off" spellcheck="false" aria-label="Search" />
   </form>
 
