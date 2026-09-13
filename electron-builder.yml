@@ -32,9 +32,12 @@ electronLanguages:
 
 win:
   executableName: omega
-  # Shown by Windows UAC and the installed-apps list. Must match the code
-  # signing certificate subject once signing is configured.
-  publisherName: Manvith
+  signtoolOptions:
+    # Shown by Windows UAC and the installed-apps list. Must match the code
+    # signing certificate subject once signing is configured. In v26 this
+    # lives under signtoolOptions — a bare win.publisherName fails schema
+    # validation (additionalProperties: false).
+    publisherName: Manvith
   target:
     - target: nsis
       arch: [x64, arm64]
