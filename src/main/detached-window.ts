@@ -35,6 +35,12 @@ export interface DetachedWindowOptions {
   iconPath: string | null
   /** Normal-mode bounds of the main window, used as the size baseline. */
   baselineBounds?: { width: number; height: number }
+  /**
+   * "Move to Tab Strip": host this URL as an active tab in the main window
+   * and close the detached window. Optional; absent until the main window's
+   * tab manager exists.
+   */
+  onReattach?: (url: string) => void
 }
 
 export function openInNewWindow(url: string, o: DetachedWindowOptions): BrowserWindow {
@@ -107,6 +113,11 @@ export function openInNewWindow(url: string, o: DetachedWindowOptions): BrowserW
       onReload: () => wc.reload(),
       onBack: () => wc.navigationHistory.canGoBack() && wc.navigationHistory.goBack(),
       onInspect: () => wc.openDevTools({ mode: 'detach' }),
+      onReattach: () => {
+        // The tab strip now hosts the page; this window's job is done.
+        o.onReattach?.(wc.getURL())
+        if (!win.isDestroyed()) win.close()
+      },
     })
   })
 

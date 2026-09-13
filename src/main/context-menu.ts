@@ -16,6 +16,11 @@ export interface ContextMenuActions {
   onReload: () => void
   onBack: () => void
   onInspect: () => void
+  /**
+   * Detached windows only: move this page back into the main tab strip.
+   * Optional — tab views do not offer it.
+   */
+  onReattach?: () => void
 }
 
 export function popupContextMenu(
@@ -68,12 +73,18 @@ export function popupContextMenu(
   // the browser; handing them to the OS either fails silently or opens
   // whatever handler the user has for an unrelated scheme.
   const openExternalAllowed = /^https?:/.test(pageUrl)
+  // Re-attach makes sense for any page a tab could host; internal URLs are
+  // already tab pages, so moving them would be a no-op at best.
+  const canReattach = /^(https?|file):/.test(pageUrl)
   template.push(
     { label: 'Reload', click: actions.onReload },
     { type: 'separator' },
     { label: 'Copy Page Address', click: () => clipboard.writeText(pageUrl) },
     ...(openExternalAllowed
       ? [{ label: 'Open in Default Browser', click: () => void shell.openExternal(pageUrl) }]
+      : []),
+    ...(actions.onReattach && canReattach
+      ? [{ label: 'Move to Tab Strip', click: actions.onReattach }]
       : []),
     { type: 'separator' },
     { label: 'Inspect Element', click: actions.onInspect },

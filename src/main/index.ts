@@ -129,6 +129,16 @@ async function createWindow(): Promise<void> {
     history,
     iconPath: existsSync(WINDOW_ICON_PATH) ? WINDOW_ICON_PATH : null,
     baselineBounds: mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : undefined,
+    // Move to Tab Strip: re-host the page as an active tab, then the module
+    // closes the window. Focus follows the tab the user just created.
+    onReattach: (url) => {
+      void tabs.createTab({ url }).then(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (mainWindow.isMinimized()) mainWindow.restore()
+          mainWindow.focus()
+        }
+      })
+    },
   })
 
   // ── Extensions load into the tab session; folders persist in settings ──
