@@ -18,6 +18,11 @@ import { DOWNLOADS_PAGE_URL, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from '@shared
 import { AdBlocker } from './ad-blocker'
 import { AiService } from './ai'
 import { applyCommandLineFlags } from './app-flags'
+import {
+  closeAllDetachedWindows,
+  detachedWebContents,
+  type DetachedWindowOptions,
+} from './detached-window'
 import { DownloadsManager } from './downloads'
 import { ExtensionsManager } from './extensions'
 import { HistoryStore } from './history-store'
@@ -109,11 +114,22 @@ async function createWindow(): Promise<void> {
           if (wc) targets.push(wc)
         }
       }
+      // Downloads started from a detached window update its page too (the
+      // context menu offers Save Image As etc. there).
+      targets.push(...detachedWebContents())
       return targets
     },
     app.getPath('downloads'),
   )
   downloads.attach()
+
+  // "Open in new window": shared state for every detached window.
+  const detachedWindowOptions = (): DetachedWindowOptions => ({
+    preloadPath: null,
+    history,
+    iconPath: existsSync(WINDOW_ICON_PATH) ? WINDOW_ICON_PATH : null,
+    baselineBounds: mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : undefined,
+  })
 
   // ── Extensions load into the tab session; folders persist in settings ──
   const extensions = new ExtensionsManager(tabSession)
@@ -208,7 +224,20 @@ async function createWindow(): Promise<void> {
     })
   }
 
-  registerIpcHandlers({ win, tabs, history, settings, adBlock, perf, ai, suggest, downloads, extensions, emitWindowState })
+  registerIpcHandlers({
+    win,
+    tabs,
+    history,
+    settings,
+    adBlock,
+    perf,
+    ai,
+    suggest,
+    downloads,
+    extensions,
+    emitWindowState,
+    detachedWindowOptions,
+  })
 
   // ── Menus carry every keyboard shortcut (focus lives in the tab views) ──
   const activeId = (): number | null => tabs.getActiveTabId()
@@ -359,6 +388,7 @@ async function createWindow(): Promise<void> {
   app.on('will-quit', () => {
     tabs.dispose()
     overlay.destroy()
+    closeAllDetachedWindows()
     history.close()
   })
 

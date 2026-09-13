@@ -14,11 +14,13 @@
 import { ipcMain, dialog, Menu, type BrowserWindow } from 'electron'
 import type { Rect, Settings, TabCreatePayload, ViewRect } from '@shared/ipc'
 import { SETTINGS_PAGE_URL } from '@shared/constants'
+import { openInNewWindow } from './detached-window'
 import type { AdBlocker } from './ad-blocker'
 import type { AiService } from './ai'
 import type { DownloadsManager } from './downloads'
 import type { ExtensionsManager } from './extensions'
 import type { HistoryStore } from './history-store'
+import type { DetachedWindowOptions } from './detached-window'
 import type { PerfMonitor } from './perf'
 import type { SettingsStore } from './settings-store'
 import type { SuggestionController } from './suggestions'
@@ -36,10 +38,15 @@ export interface IpcDeps {
   downloads: DownloadsManager
   extensions: ExtensionsManager
   emitWindowState: () => void
+  /** Builds options for detached windows (needs history + paths). */
+  detachedWindowOptions: () => DetachedWindowOptions
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
   const { win, tabs, history, settings, adBlock, perf, ai, suggest, downloads, extensions } = deps
+
+  /** Detached windows share the history store and get the app icon. */
+  const detachedOptions = (): DetachedWindowOptions => deps.detachedWindowOptions()
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
@@ -67,8 +74,22 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle('tab:menu', (_e, id: number, position: { x: number; y: number }) => {
     const meta = tabs.getMeta(id)
     if (!meta) return
+    // A detached window is a *page* window: internal pages (settings,
+    // history) have no meaning outside the browser shell, so the item only
+    // makes sense for real web content.
+    const canDetach = /^(https?|file):/.test(meta.url)
     const template: Electron.MenuItemConstructorOptions[] = [
       { label: 'Duplicate Tab', click: () => void tabs.duplicate(id) },
+      ...(canDetach
+        ? [{
+            label: 'Open in New Window',
+            click: () => {
+              openInNewWindow(meta.url, detachedOptions())
+              // The tab stays in the strip, exactly like Edge's "Open in new
+              // window" keeps the original in the tab list.
+            },
+          }]
+        : []),
       { type: 'separator' },
       { label: meta.isMuted ? 'Unmute Tab' : 'Mute Tab', click: () => tabs.setMuted(id, !meta.isMuted) },
       { type: 'separator' },
