@@ -3,7 +3,11 @@
   "version": "0.1.1",
   "description": "Omega - a fast, private desktop web browser",
   "main": "./out/main/index.js",
-  "author": "Omega",
+  "desktopName": "omega.desktop",
+  "author": {
+    "name": "Omega",
+    "email": "manvithudupa073@gmail.com"
+  },
   "license": "MIT",
   "private": true,
   "scripts": {

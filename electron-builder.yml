@@ -69,6 +69,9 @@ linux:
   category: Network;WebBrowser
   synopsis: A fast, private web browser
   description: Omega is a Chromium-based browser built on Electron with per-tab process suspension, network-level ad blocking and a local-first page assistant.
+  # The maintainer comes from package.json's author.email (required by fpm for
+  # the .deb control file). See the desktopName note there too.
+  syncDesktopName: true
   target:
     - AppImage
     - deb
