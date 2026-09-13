@@ -35,9 +35,9 @@ jobs:
       - name: Check out the tag
         uses: actions/checkout@v4
         with:
-          # The tag must exist even on workflow_dispatch; the input only decides
-          # which release the artifacts attach to at the end.
-          ref: ${{ github.ref_name }}
+          # Tag push: ref_name is the tag itself. Manual dispatch: fall back to
+          # the `tag` input so a specific release can be rebuilt from main.
+          ref: ${{ inputs.tag || github.ref_name }}
           fetch-depth: 0
 
       - name: Set up Node 20
