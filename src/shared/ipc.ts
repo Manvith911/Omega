@@ -143,6 +143,29 @@ export interface Toast {
   message: string
 }
 
+/** Mirrors the main-process download record, minus Electron types. */
+export interface DownloadInfo {
+  id: string
+  url: string
+  filename: string
+  path: string
+  state: 'progressing' | 'completed' | 'cancelled' | 'interrupted'
+  received: number
+  total: number
+  startedAt: number
+  endedAt?: number
+}
+
+export interface ExtensionInfo {
+  id: string
+  name: string
+  version: string
+  description: string
+  enabled: boolean
+  path: string
+  icon?: string
+}
+
 /**
  * Commands the main process pushes down to the chrome UI — driven by menu
  * accelerators, which fire inside the tab views and therefore cannot be
@@ -173,6 +196,8 @@ export interface Settings {
   theme: 'dark' | 'light'
   /** Window geometry + fullscreen/maximized state, restored on launch. */
   windowState?: PersistedWindowState
+  /** Absolute folders of extensions to re-load on launch. */
+  extensions?: { path: string; enabled: boolean }[]
 }
 
 /** Shape saved to settings.json between runs. Optional for older files. */
@@ -232,6 +257,19 @@ export const INVOKE_CHANNELS = [
   'win:minimize',
   'win:maximize',
   'win:close',
+  // downloads
+  'downloads:list',
+  'downloads:open',
+  'downloads:show',
+  'downloads:cancel',
+  'downloads:clear-finished',
+  // extensions
+  'extensions:list',
+  'extensions:load',
+  'extensions:remove',
+  'extensions:set-enabled',
+  // page host (internal pages asking which page they are)
+  'page:kind',
   // ai sidebar
   'ai:extract',
   'ai:ask',
@@ -241,7 +279,7 @@ export const INVOKE_CHANNELS = [
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]
 
 export interface InvokeMap {
-  'page:open': { args: [page: 'settings' | 'history']; result: TabMeta | null }
+  'page:open': { args: [page: 'settings' | 'history' | 'downloads' | 'extensions']; result: TabMeta | null }
   'tab:create': { args: [payload?: TabCreatePayload]; result: TabMeta }
   'tab:close': { args: [tabId: number]; result: void }
   'tab:close-others': { args: [tabId: number]; result: void }
@@ -276,6 +314,16 @@ export interface InvokeMap {
   'win:minimize': { args: []; result: void }
   'win:maximize': { args: []; result: void }
   'win:close': { args: []; result: void }
+  'downloads:list': { args: []; result: DownloadInfo[] }
+  'downloads:open': { args: [id: string]; result: boolean }
+  'downloads:show': { args: [id: string]; result: void }
+  'downloads:cancel': { args: [id: string]; result: void }
+  'downloads:clear-finished': { args: []; result: void }
+  'extensions:list': { args: []; result: ExtensionInfo[] }
+  'extensions:load': { args: []; result: ExtensionInfo }
+  'extensions:remove': { args: [id: string]; result: boolean }
+  'extensions:set-enabled': { args: [id: string, enabled: boolean]; result: void }
+  'page:kind': { args: []; result: 'settings' | 'history' | 'downloads' | 'extensions' | 'other' }
   'ai:extract': { args: [tabId: number]; result: PageContent | null }
   'ai:ask': { args: [tabId: number, prompt: string]; result: string }
   'ai:abort': { args: [id: string]; result: void }
@@ -299,6 +347,7 @@ export const EVENT_CHANNELS = [
   'ai:chunk',
   'toast',
   'ui:command',
+  'downloads:updated',
 ] as const
 
 export type EventChannel = (typeof EVENT_CHANNELS)[number]
@@ -319,6 +368,7 @@ export interface EventMap {
   'ai:chunk': AiChunk
   'toast': Toast
   'ui:command': UiCommand
+  'downloads:updated': DownloadInfo[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

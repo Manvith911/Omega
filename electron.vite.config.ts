@@ -94,12 +94,15 @@ export default defineConfig({
       reportCompressedSize: false,
       rollupOptions: {
         input: {
-          // Four entries: the chrome UI, the suggestions overlay surface, and
-          // the two internal tab pages (settings, history).
+          // Six entries: the chrome UI, the suggestions overlay surface, and
+          // the four internal tab pages (settings, history, downloads,
+          // extensions).
           index: resolve(__dirname, 'src/renderer/index.html'),
           overlay: resolve(__dirname, 'src/renderer/overlay.html'),
           settings: resolve(__dirname, 'src/renderer/settings.html'),
           history: resolve(__dirname, 'src/renderer/history.html'),
+          downloads: resolve(__dirname, 'src/renderer/downloads.html'),
+          extensions: resolve(__dirname, 'src/renderer/extensions.html'),
         },
         output: {
           // A function, not an object map: the object form silently produced an

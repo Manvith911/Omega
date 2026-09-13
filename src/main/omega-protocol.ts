@@ -156,7 +156,10 @@ const CSP_NEWTAB = [
   "script-src 'unsafe-inline'",
   "style-src 'unsafe-inline'",
   "img-src https: data:",
-  "form-action https:",
+  // omega: is the internal search redirect (omega://search?q=...); https: is
+  // every real search engine. Without omega: here Chromium silently blocks
+  // the form submit and the search box does nothing.
+  "form-action omega: https:",
   "base-uri 'none'",
 ].join('; ')
 

@@ -200,3 +200,18 @@ export const ArrowDown = (p: IconProps): React.JSX.Element => (
     <path d="M8 3v9.4M4.2 8.6 8 12.4l3.8-3.8" {...stroke} />
   </Base>
 )
+
+export const Folder = (p: IconProps): React.JSX.Element => (
+  <Base {...p}>
+    <path d="M2.2 4.6A1.4 1.4 0 0 1 3.6 3.2h2.9l1.4 1.6h4.5a1.4 1.4 0 0 1 1.4 1.4v5.4a1.4 1.4 0 0 1-1.4 1.4H3.6a1.4 1.4 0 0 1-1.4-1.4V4.6Z" {...stroke} />
+  </Base>
+)
+
+export const Puzzle = (p: IconProps): React.JSX.Element => (
+  <Base {...p}>
+    <path
+      d="M6.6 2.8a1.5 1.5 0 0 1 3 0v.9h2.1a.9.9 0 0 1 .9.9v2.1h.9a1.5 1.5 0 0 1 0 3h-.9v2.1a.9.9 0 0 1-.9.9H9.6v-.9a1.5 1.5 0 0 0-3 0v.9H4.5a.9.9 0 0 1-.9-.9V9.7h-.9a1.5 1.5 0 0 1 0-3h.9V4.6a.9.9 0 0 1 .9-.9h2.1v-.9Z"
+      {...stroke}
+    />
+  </Base>
+)

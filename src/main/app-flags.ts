@@ -52,10 +52,6 @@ export function applyCommandLineFlags(app: App): void {
   //    processes instead of each spinning up a ~40 MB sandboxed child.
   sw('renderer-process-limit', '8')
 
-  // ── RAM: stop V8 from lazily growing each renderer's heap toward a
-  //    multi-GB ceiling that a single page will never need.
-  sw('js-flags', '--max-old-space-size=384 --max-semi-space-size=8')
-
   // ── Network/CPU: the component updater periodically pulls Widevine,
   //    CRL sets and other payloads we do not use.
   sw('disable-component-update')

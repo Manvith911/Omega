@@ -1,8 +1,25 @@
 import { useCallback } from 'react'
-import { HISTORY_PAGE_URL, SETTINGS_PAGE_URL, TOOLBAR_HEIGHT } from '@shared/constants'
+import {
+  DOWNLOADS_PAGE_URL,
+  EXTENSIONS_PAGE_URL,
+  HISTORY_PAGE_URL,
+  SETTINGS_PAGE_URL,
+  TOOLBAR_HEIGHT,
+} from '@shared/constants'
 import { useActiveTab, useChrome } from '../store'
 import { FindBar } from './FindBar'
-import { ChevronLeft, ChevronRight, Clock, Reload, Settings, ShieldOff, Sparkles, Stop } from './Icons'
+import {
+  ArrowDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Puzzle,
+  Reload,
+  Settings,
+  ShieldOff,
+  Sparkles,
+  Stop,
+} from './Icons'
 import { Omnibox } from './Omnibox'
 
 function IconButton({
@@ -48,7 +65,7 @@ function openPanel(panel: 'sidebar'): void {
   }
 }
 
-function openPage(page: 'settings' | 'history'): void {
+function openPage(page: 'settings' | 'history' | 'downloads' | 'extensions'): void {
   void window.omega.invoke('page:open', page)
 }
 
@@ -61,6 +78,7 @@ export function Toolbar(): React.JSX.Element {
   const sidebarOpen = useChrome((s) => s.sidebarOpen)
   const activeUrl = useActiveTab()?.url ?? ''
   const adBlockEnabled = useChrome((s) => s.settings?.adBlockEnabled ?? true)
+  const downloadCount = useChrome((s) => s.activeDownloads)
 
   const reloadOrStop = useCallback(() => {
     if (tabId === null) return
@@ -114,6 +132,29 @@ export function Toolbar(): React.JSX.Element {
 
         <IconButton label="History" active={activeUrl.startsWith(HISTORY_PAGE_URL)} onClick={() => openPage('history')}>
           <Clock className="h-4 w-4" />
+        </IconButton>
+
+        <IconButton
+          label={downloadCount > 0 ? `Downloads — ${downloadCount} active` : 'Downloads'}
+          active={activeUrl.startsWith(DOWNLOADS_PAGE_URL)}
+          onClick={() => openPage('downloads')}
+        >
+          <span className="relative">
+            <ArrowDown className="h-4 w-4" />
+            {downloadCount > 0 ? (
+              <span className="absolute -right-1.5 -top-1.5 flex h-3 min-w-3 items-center justify-center rounded-full bg-chrome-accent px-0.5 text-[8.5px] font-bold text-white">
+                {downloadCount > 9 ? '9+' : downloadCount}
+              </span>
+            ) : null}
+          </span>
+        </IconButton>
+
+        <IconButton
+          label="Extensions"
+          active={activeUrl.startsWith(EXTENSIONS_PAGE_URL)}
+          onClick={() => openPage('extensions')}
+        >
+          <Puzzle className="h-4 w-4" />
         </IconButton>
 
         <IconButton label="Page assistant" active={sidebarOpen} onClick={() => openPanel('sidebar')}>

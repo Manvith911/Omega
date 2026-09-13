@@ -27,6 +27,7 @@ export interface MenuActions {
   toggleDevTools: () => void
   toggleUiDevTools: () => void
   command: (command: UiCommand) => void
+  openPage: (page: 'settings' | 'history' | 'downloads' | 'extensions') => void
 }
 
 export function installAppMenu(actions: MenuActions): void {
@@ -104,6 +105,7 @@ export function installAppMenu(actions: MenuActions): void {
     label: 'History',
     submenu: [
       { label: 'Show History', accelerator: 'CmdOrCtrl+Y', click: () => actions.command('toggle-history') },
+      { label: 'Downloads', accelerator: 'CmdOrCtrl+J', click: () => actions.openPage('downloads') },
       { type: 'separator' },
       { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => actions.stepTab(1) },
       { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', click: () => actions.stepTab(-1) },
@@ -117,7 +119,8 @@ export function installAppMenu(actions: MenuActions): void {
       })),
       { label: 'Last Tab', accelerator: 'CmdOrCtrl+9', visible: false, click: () => actions.selectTabIndex(-1) },
       { type: 'separator' },
-      { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => actions.command('open-settings') },
+      { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => actions.openPage('settings') },
+      { label: 'Extensions', accelerator: 'CmdOrCtrl+Shift+X', click: () => actions.openPage('extensions') },
     ],
   }
 

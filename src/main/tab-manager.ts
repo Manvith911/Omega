@@ -16,7 +16,14 @@
  */
 
 import { BrowserWindow, WebContentsView, type WebContents } from 'electron'
-import { HISTORY_PAGE_URL, NEW_TAB_URL, SETTINGS_PAGE_URL, ZOOM_STEPS } from '@shared/constants'
+import {
+  DOWNLOADS_PAGE_URL,
+  EXTENSIONS_PAGE_URL,
+  HISTORY_PAGE_URL,
+  NEW_TAB_URL,
+  SETTINGS_PAGE_URL,
+  ZOOM_STEPS,
+} from '@shared/constants'
 import type { FindResult, TabCreatePayload, TabMeta, ViewRect } from '@shared/ipc'
 import { freeze, thaw } from './tab-freezer'
 import type { HistoryStore } from './history-store'
@@ -31,6 +38,8 @@ const ZOOM_BASE = 1.2
 function internalPageTitle(url: string): string {
   if (url.startsWith(SETTINGS_PAGE_URL)) return 'Settings'
   if (url.startsWith(HISTORY_PAGE_URL)) return 'History'
+  if (url.startsWith(DOWNLOADS_PAGE_URL)) return 'Downloads'
+  if (url.startsWith(EXTENSIONS_PAGE_URL)) return 'Extensions'
   if (url.startsWith(NEW_TAB_URL)) return 'New Tab'
   return prettyUrl(url) || 'Untitled'
 }
@@ -149,8 +158,14 @@ export class TabManager {
    * that already shows it. Chrome behaves the same way: one Settings tab per
    * window, however many times you trigger the command.
    */
-  async openOrFocusPage(page: 'settings' | 'history'): Promise<TabMeta | null> {
-    const target = page === 'settings' ? SETTINGS_PAGE_URL : HISTORY_PAGE_URL
+  async openOrFocusPage(page: 'settings' | 'history' | 'downloads' | 'extensions'): Promise<TabMeta | null> {
+    const targets: Record<typeof page, string> = {
+      settings: SETTINGS_PAGE_URL,
+      history: HISTORY_PAGE_URL,
+      downloads: DOWNLOADS_PAGE_URL,
+      extensions: EXTENSIONS_PAGE_URL,
+    }
+    const target = targets[page]
     const existing = [...this.tabs.values()].find((e) => e.meta.url === target)
     if (existing) {
       await this.activate(existing.id)

@@ -32,6 +32,9 @@ electronLanguages:
 
 win:
   executableName: omega
+  # Shown by Windows UAC and the installed-apps list. Must match the code
+  # signing certificate subject once signing is configured.
+  publisherName: Manvith
   target:
     - target: nsis
       arch: [x64, arm64]

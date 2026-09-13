@@ -62,9 +62,10 @@ const DEV_ORIGIN: string | null = (() => {
 const OVERLAY_ALLOWED_INVOKES = new Set<string>(['suggest:select', 'suggest:highlight', 'suggest:dismiss'])
 const OVERLAY_ALLOWED_EVENTS = new Set<string>(['suggest:state'])
 
-/** The reduced surface for Omega's own full pages (settings, history). */
+/** The reduced surface for Omega's own full pages (settings, history, …). */
 const PAGE_ALLOWED_INVOKES = new Set<string>([
   'page:open',
+  'page:kind',
   'settings:get',
   'settings:set',
   'history:list',
@@ -72,8 +73,17 @@ const PAGE_ALLOWED_INVOKES = new Set<string>([
   'history:clear',
   'nav:go',
   'tab:close',
+  'downloads:list',
+  'downloads:open',
+  'downloads:show',
+  'downloads:cancel',
+  'downloads:clear-finished',
+  'extensions:list',
+  'extensions:load',
+  'extensions:remove',
+  'extensions:set-enabled',
 ])
-const PAGE_ALLOWED_EVENTS = new Set<string>(['toast'])
+const PAGE_ALLOWED_EVENTS = new Set<string>(['toast', 'downloads:updated'])
 
 /**
  * Whether this tab renderer is currently showing an Omega page rather than

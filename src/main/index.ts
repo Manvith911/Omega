@@ -18,6 +18,8 @@ import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from '@shared/constants'
 import { AdBlocker } from './ad-blocker'
 import { AiService } from './ai'
 import { applyCommandLineFlags } from './app-flags'
+import { DownloadsManager } from './downloads'
+import { ExtensionsManager } from './extensions'
 import { HistoryStore } from './history-store'
 import { registerIpcHandlers } from './ipc'
 import { installAppMenu } from './menu'
@@ -92,6 +94,26 @@ async function createWindow(): Promise<void> {
   // ── Blocking is installed on the *tab* session only ──
   const adBlock = new AdBlocker(tabSession, dataDir, settings.get().adBlockEnabled)
   adBlock.initialize()
+
+  // ── Downloads land in the user's Downloads folder, tracked for the page ──
+  const downloads = new DownloadsManager(tabSession, () => mainWindow, app.getPath('downloads'))
+  downloads.attach()
+
+  // ── Extensions load into the tab session; folders persist in settings ──
+  const extensions = new ExtensionsManager(tabSession)
+  const savedExtensions = settings.get().extensions ?? []
+  if (savedExtensions.length > 0) {
+    extensions
+      .restore(savedExtensions)
+      .then((restored) => {
+        if (restored.length !== savedExtensions.length) {
+          console.warn(
+            `[omega] extensions: restored ${restored.length} of ${savedExtensions.length} (missing folders skipped)`,
+          )
+        }
+      })
+      .catch((err) => console.warn('[omega] extension restore failed:', err))
+  }
 
   const isMac = process.platform === 'darwin'
 
@@ -170,7 +192,7 @@ async function createWindow(): Promise<void> {
     })
   }
 
-  registerIpcHandlers({ win, tabs, history, settings, adBlock, perf, ai, suggest, emitWindowState })
+  registerIpcHandlers({ win, tabs, history, settings, adBlock, perf, ai, suggest, downloads, extensions, emitWindowState })
 
   // ── Menus carry every keyboard shortcut (focus lives in the tab views) ──
   const activeId = (): number | null => tabs.getActiveTabId()
@@ -230,6 +252,7 @@ async function createWindow(): Promise<void> {
       }
       if (!win.webContents.isDestroyed()) win.webContents.send('ui:command', command)
     },
+    openPage: (page) => void tabs.openOrFocusPage(page),
   })
 
   // ── Frame lifecycle ──
@@ -321,6 +344,45 @@ async function createWindow(): Promise<void> {
     tabs.dispose()
     overlay.destroy()
     history.close()
+  })
+
+  // ── Crash resilience ──
+  // "The app closes itself" is almost always a browser-process exception or a
+  // GPU process exit escalating to full teardown. None of these are fatal:
+  // log, keep the window alive, degrade gracefully.
+  process.on('uncaughtException', (err) => {
+    console.error('[omega] uncaught exception (browser process kept alive):', err)
+  })
+  process.on('unhandledRejection', (reason) => {
+    console.error('[omega] unhandled rejection (browser process kept alive):', reason)
+  })
+
+  app.on('child-process-gone', (_event, details) => {
+    // GPU death normally blanks every tab; a restart recovers it without
+    // touching the window. Renderer deaths are handled per-tab in TabManager.
+    if (details.type === 'GPU') {
+      console.warn('[omega] GPU process gone:', details.reason, '— requesting restart')
+      try {
+        app.commandLine.appendSwitch('ignore-gpu-blocklist')
+        win.webContents.invalidate()
+      } catch {
+        /* window may already be closing */
+      }
+      return
+    }
+    console.warn('[omega] child process gone:', details.type, details.reason)
+  })
+
+  // If the chrome UI renderer itself dies, the window would sit blank
+  // forever — indistinguishable from "the app closed". Reload it; the React
+  // tree rehydrates from the main process state within a frame or two.
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[omega] chrome renderer gone:', details.reason, '— reloading UI')
+    if (!win.isDestroyed()) {
+      setTimeout(() => {
+        if (!win.isDestroyed()) void win.webContents.reload()
+      }, 250)
+    }
   })
 }
 

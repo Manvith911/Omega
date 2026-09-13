@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Settings, TabMeta, Toast, UiCommand, WindowState } from '@shared/ipc'
+import type { DownloadInfo, Settings, TabMeta, Toast, UiCommand, WindowState } from '@shared/ipc'
 
 export interface ChromeState {
   tabs: TabMeta[]
@@ -9,6 +9,8 @@ export interface ChromeState {
 
   sidebarOpen: boolean
   findOpen: boolean
+  /** Count of in-flight downloads — drives the toolbar badge. */
+  activeDownloads: number
 
   toast: Toast | null
 
@@ -20,6 +22,7 @@ export interface ChromeState {
   setWindowState: (state: WindowState) => void
   setToast: (toast: Toast | null) => void
   setFindOpen: (open: boolean) => void
+  setDownloads: (downloads: DownloadInfo[]) => void
   applyCommand: (command: UiCommand) => void
 }
 
@@ -30,6 +33,7 @@ export const useChrome = create<ChromeState>((set) => ({
   windowState: { maximized: false, fullscreen: false, platform: 'win32' },
   sidebarOpen: false,
   findOpen: false,
+  activeDownloads: 0,
   toast: null,
 
   setTabs: (tabs) =>
@@ -68,6 +72,8 @@ export const useChrome = create<ChromeState>((set) => ({
   setWindowState: (windowState) => set({ windowState }),
   setToast: (toast) => set({ toast }),
   setFindOpen: (findOpen) => set({ findOpen }),
+  setDownloads: (downloads) =>
+    set({ activeDownloads: downloads.filter((d) => d.state === 'progressing').length }),
 
   applyCommand: (command) =>
     set((state) => {

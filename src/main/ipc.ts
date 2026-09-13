@@ -11,10 +11,12 @@
  * one-frame stalls.
  */
 
-import { ipcMain, type BrowserWindow } from 'electron'
+import { ipcMain, dialog, type BrowserWindow } from 'electron'
 import type { Rect, Settings, TabCreatePayload, ViewRect } from '@shared/ipc'
 import type { AdBlocker } from './ad-blocker'
 import type { AiService } from './ai'
+import type { DownloadsManager } from './downloads'
+import type { ExtensionsManager } from './extensions'
 import type { HistoryStore } from './history-store'
 import type { PerfMonitor } from './perf'
 import type { SettingsStore } from './settings-store'
@@ -30,16 +32,29 @@ export interface IpcDeps {
   perf: PerfMonitor
   ai: AiService
   suggest: SuggestionController
+  downloads: DownloadsManager
+  extensions: ExtensionsManager
   emitWindowState: () => void
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
-  const { win, tabs, history, settings, adBlock, perf, ai, suggest } = deps
+  const { win, tabs, history, settings, adBlock, perf, ai, suggest, downloads, extensions } = deps
 
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('tab:create', (_e, payload: TabCreatePayload = {}) => tabs.createTab(payload))
-  ipcMain.handle('page:open', (_e, page: 'settings' | 'history') => tabs.openOrFocusPage(page))
+  ipcMain.handle('page:open', (_e, page: 'settings' | 'history' | 'downloads' | 'extensions') =>
+    tabs.openOrFocusPage(page),
+  )
+  ipcMain.handle('page:kind', (_e) => {
+    const senderUrl = new URL(_e.senderFrame?.url ?? 'about:blank')
+    const path = senderUrl.pathname
+    if (path.includes('settings')) return 'settings' as const
+    if (path.includes('history')) return 'history' as const
+    if (path.includes('downloads')) return 'downloads' as const
+    if (path.includes('extensions')) return 'extensions' as const
+    return 'other' as const
+  })
   ipcMain.handle('tab:close', (_e, id: number) => tabs.closeTab(id))
   ipcMain.handle('tab:close-others', (_e, id: number) => tabs.closeOthers(id))
   ipcMain.handle('tab:switch', (_e, id: number) => tabs.activate(id))
@@ -139,4 +154,41 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle('ai:extract', (_e, tabId: number) => ai.extract(tabId))
   ipcMain.handle('ai:ask', (_e, tabId: number, prompt: string) => ai.ask(tabId, prompt))
   ipcMain.handle('ai:abort', (_e, id: string) => ai.abort(id))
+
+  // ── Downloads ──────────────────────────────────────────────────────
+
+  ipcMain.handle('downloads:list', () => downloads.list())
+  ipcMain.handle('downloads:open', (_e, id: string) => downloads.open(id))
+  ipcMain.handle('downloads:show', (_e, id: string) => downloads.showInFolder(id))
+  ipcMain.handle('downloads:cancel', (_e, id: string) => downloads.cancel(id))
+  ipcMain.handle('downloads:clear-finished', () => downloads.clearFinished())
+
+  // ── Extensions ─────────────────────────────────────────────────────
+
+  ipcMain.handle('extensions:list', () => extensions.all())
+  ipcMain.handle('extensions:load', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Load unpacked extension',
+      properties: ['openDirectory'],
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const record = await extensions.load(result.filePaths[0] as string)
+    syncExtensionSettings()
+    return record
+  })
+  ipcMain.handle('extensions:remove', async (_e, id: string) => {
+    const ok = await extensions.remove(id)
+    if (ok) syncExtensionSettings()
+    return ok
+  })
+  ipcMain.handle('extensions:set-enabled', async (_e, id: string, enabled: boolean) => {
+    const record = await extensions.setEnabled(id, enabled)
+    if (record) syncExtensionSettings()
+    return record
+  })
+
+  /** Persist the manager's state; it is the source of truth. */
+  function syncExtensionSettings(): void {
+    settings.set({ extensions: extensions.entries() })
+  }
 }

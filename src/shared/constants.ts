@@ -31,6 +31,8 @@ export const NEW_TAB_URL = 'omega://newtab'
  */
 export const SETTINGS_PAGE_URL = 'omega://app/settings.html'
 export const HISTORY_PAGE_URL = 'omega://app/history.html'
+export const DOWNLOADS_PAGE_URL = 'omega://app/downloads.html'
+export const EXTENSIONS_PAGE_URL = 'omega://app/extensions.html'
 
 export const SEARCH_ENGINES = {
   google: { name: 'Google', url: 'https://www.google.com/search?q=' },

@@ -32,6 +32,7 @@ export default function App(): React.JSX.Element {
       window.omega.on('win:state', store.setWindowState),
       window.omega.on('ui:command', store.applyCommand),
       window.omega.on('toast', store.setToast),
+      window.omega.on('downloads:updated', store.setDownloads),
     ]
     return () => unsubscribe.forEach((off) => off())
   }, [])
