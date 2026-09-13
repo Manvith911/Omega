@@ -15,6 +15,7 @@ import type { UiCommand } from '@shared/ipc'
 
 export interface MenuActions {
   newTab: () => void
+  newPrivateTab: () => void
   closeTab: () => void
   reopenTab: () => void
   duplicateTab: () => void
@@ -26,8 +27,11 @@ export interface MenuActions {
   zoom: (direction: 'in' | 'out' | 'reset') => void
   toggleDevTools: () => void
   toggleUiDevTools: () => void
+  fullscreen: () => void
+  print: () => void
+  bookmarkPage: () => void
   command: (command: UiCommand) => void
-  openPage: (page: 'settings' | 'history' | 'downloads' | 'extensions') => void
+  openPage: (page: 'settings' | 'history' | 'downloads' | 'extensions' | 'bookmarks' | 'about') => void
 }
 
 export function installAppMenu(actions: MenuActions): void {
@@ -39,7 +43,7 @@ export function installAppMenu(actions: MenuActions): void {
     label: 'File',
     submenu: [
       { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: () => actions.newTab() },
-      { label: 'New Window', enabled: false },
+      { label: 'New Private Tab', accelerator: 'CmdOrCtrl+Shift+N', click: () => actions.newPrivateTab() },
       { type: 'separator' },
       { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: () => actions.closeTab() },
       { label: 'Reopen Closed Tab', accelerator: 'CmdOrCtrl+Shift+T', click: () => actions.reopenTab() },
@@ -75,6 +79,8 @@ export function installAppMenu(actions: MenuActions): void {
       { label: 'Force Reload', accelerator: 'CmdOrCtrl+Shift+R', click: () => actions.reload(true) },
       { label: 'Stop', accelerator: 'Esc', enabled: false },
       { type: 'separator' },
+      { label: 'Toggle Full Screen', accelerator: isMac ? 'Ctrl+Cmd+F' : 'F11', click: () => actions.fullscreen() },
+      { type: 'separator' },
       { label: 'Back', accelerator: isMac ? 'Cmd+[' : 'Alt+Left', click: () => actions.back() },
       { label: 'Forward', accelerator: isMac ? 'Cmd+]' : 'Alt+Right', click: () => actions.forward() },
       { type: 'separator' },
@@ -106,6 +112,9 @@ export function installAppMenu(actions: MenuActions): void {
     submenu: [
       { label: 'Show History', accelerator: 'CmdOrCtrl+Y', click: () => actions.command('toggle-history') },
       { label: 'Downloads', accelerator: 'CmdOrCtrl+J', click: () => actions.openPage('downloads') },
+      { label: 'Bookmarks', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openPage('bookmarks') },
+      { type: 'separator' },
+      { label: 'Bookmark This Page', accelerator: 'CmdOrCtrl+D', click: () => actions.bookmarkPage() },
       { type: 'separator' },
       { label: 'Next Tab', accelerator: 'Ctrl+Tab', click: () => actions.stepTab(1) },
       { label: 'Previous Tab', accelerator: 'Ctrl+Shift+Tab', click: () => actions.stepTab(-1) },
@@ -121,7 +130,13 @@ export function installAppMenu(actions: MenuActions): void {
       { type: 'separator' },
       { label: 'Settings', accelerator: 'CmdOrCtrl+,', click: () => actions.openPage('settings') },
       { label: 'Extensions', accelerator: 'CmdOrCtrl+Shift+X', click: () => actions.openPage('extensions') },
+      { label: 'About Omega', accelerator: 'CmdOrCtrl+Shift+A', click: () => actions.openPage('about') },
     ],
+  }
+
+  const printMenu: MenuItemConstructorOptions = {
+    label: 'Print',
+    submenu: [{ label: 'Print Page…', accelerator: 'CmdOrCtrl+P', click: () => actions.print() }],
   }
 
   const template: MenuItemConstructorOptions[] = [
@@ -130,6 +145,7 @@ export function installAppMenu(actions: MenuActions): void {
     editMenu,
     viewMenu,
     historyMenu,
+    printMenu,
     { role: 'windowMenu' },
   ]
 

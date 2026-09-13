@@ -77,6 +77,16 @@ function Tab({ tab }: { tab: TabMeta }): React.JSX.Element {
       {...attributes}
       {...listeners}
     >
+      {/* Private tabs get a badge so the mode is always visible. */}
+      {tab.incognito ? (
+        <span
+          className="shrink-0 rounded bg-violet-500/20 px-1 py-px text-[8.5px] font-semibold uppercase tracking-wide text-violet-300"
+          title="Private tab — not saved to history"
+        >
+          P
+        </span>
+      ) : null}
+
       {/* Favicon slot doubles as the loading indicator. */}
       <span className="flex h-4 w-4 shrink-0 items-center justify-center">
         {tab.isLoading ? (

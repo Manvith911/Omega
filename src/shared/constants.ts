@@ -33,6 +33,8 @@ export const SETTINGS_PAGE_URL = 'omega://app/settings.html'
 export const HISTORY_PAGE_URL = 'omega://app/history.html'
 export const DOWNLOADS_PAGE_URL = 'omega://app/downloads.html'
 export const EXTENSIONS_PAGE_URL = 'omega://app/extensions.html'
+export const BOOKMARKS_PAGE_URL = 'omega://app/bookmarks.html'
+export const ABOUT_PAGE_URL = 'omega://app/about.html'
 
 export const SEARCH_ENGINES = {
   google: { name: 'Google', url: 'https://www.google.com/search?q=' },
@@ -56,7 +58,9 @@ export const PROD_UI_CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: http: https:",
+  // https: covers file-URL icons of loaded extensions (Chromium converts
+  // <img src="file://…"> loads to https origin checks in this context).
+  "img-src 'self' data: blob: http: https: file:",
   "font-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",

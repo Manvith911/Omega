@@ -21,6 +21,9 @@ import type { TabManager } from './tab-manager'
 /** Hard cap on what we will send to a model: ~3k tokens. */
 const MAX_CHARS = 12_000
 
+/** A hung endpoint must not hold the request open forever. */
+const AI_TIMEOUT_MS = 60_000
+
 /**
  * Self-contained: this string is evaluated inside the page, so it cannot close
  * over anything from the main process.
@@ -113,6 +116,22 @@ export class AiService {
       for (const [k, v] of Object.entries(headers)) request.setHeader(k, v)
       this.inFlight.set(id, request)
 
+      // Response-header timeout: covers a hung endpoint (no bytes at all).
+      // Once streaming has begun, `response.on('close')` below owns teardown.
+      const timeout = setTimeout(() => {
+        if (!this.inFlight.has(id)) return
+        this.inFlight.delete(id)
+        try {
+          request.abort()
+        } catch {
+          /* already finished */
+        }
+        this.emit({ id, type: 'error', value: 'The request timed out.' })
+      }, AI_TIMEOUT_MS)
+      // Streaming responses are long-lived by design; the timeout above only
+      // guards the time to FIRST byte. Any received data clears it.
+      let gotFirstByte = false
+
       request.on('response', (response) => {
         const status = response.statusCode
         if (status >= 400) {
@@ -127,6 +146,10 @@ export class AiService {
 
         let buffer = ''
         response.on('data', (chunk: Buffer) => {
+          if (!gotFirstByte) {
+            gotFirstByte = true
+            clearTimeout(timeout)
+          }
           buffer += chunk.toString('utf-8')
           // SSE frames are newline delimited; a chunk boundary can split one,
           // so keep the trailing partial line for the next pass.
@@ -147,12 +170,19 @@ export class AiService {
           }
         })
         response.on('end', () => {
+          clearTimeout(timeout)
           this.inFlight.delete(id)
           this.emit({ id, type: 'done', value: '' })
+        })
+        response.on('error', () => {
+          clearTimeout(timeout)
+          this.inFlight.delete(id)
+          this.emit({ id, type: 'error', value: 'The connection dropped mid-response.' })
         })
       })
 
       request.on('error', (err) => {
+        clearTimeout(timeout)
         this.inFlight.delete(id)
         const hint =
           config.aiProvider === 'ollama'

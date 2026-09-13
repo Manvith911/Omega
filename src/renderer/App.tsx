@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { PerfOverlay } from './components/PerfOverlay'
+import { PermissionPrompt } from './components/PermissionPrompt'
 import { Sidebar } from './components/Sidebar'
 import { TabStrip } from './components/TabStrip'
 import { Toast } from './components/Toast'
@@ -83,6 +84,13 @@ export default function App(): React.JSX.Element {
     }
   }, [pageHidden])
 
+  // ── Fullscreen via the app menu arrives as a command ──
+  useEffect(() => {
+    return window.omega.on('ui:command', (command) => {
+      if (command === 'toggle-fullscreen') void window.omega.invoke('win:toggle-fullscreen')
+    })
+  }, [])
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-chrome-bg">
       <TabStrip />
@@ -90,13 +98,12 @@ export default function App(): React.JSX.Element {
 
       <div className="flex min-h-0 flex-1">
         {/* The native WebContentsView is positioned over this element. */}
-        <div ref={viewportRef} className="relative min-w-0 flex-1">
-          {sidebarOpen ? null : null}
-        </div>
+        <div ref={viewportRef} className="relative min-w-0 flex-1" />
 
         {sidebarOpen ? <Sidebar /> : null}
       </div>
 
+      <PermissionPrompt />
       <PerfOverlay />
       <Toast />
     </div>

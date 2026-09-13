@@ -112,8 +112,8 @@ export interface AdBlockerStats {
 }
 
 export class AdBlocker {
-  private readonly block = new Set<string>(BUILTIN_RULES)
-  private readonly allow = new Set<string>()
+  private block = new Set<string>(BUILTIN_RULES)
+  private allow = new Set<string>()
   /** webContentsId -> hostname of that tab's current top-level document. */
   private readonly topHost = new Map<number, string>()
   private readonly blockedHosts = new Set<string>()
@@ -164,6 +164,8 @@ export class AdBlocker {
       if (!existsSync(this.rulesPath)) return
       const raw = readFileSync(this.rulesPath, 'utf-8')
       const { block, allow } = parseRuleText(raw)
+      // Replace, don't merge: a refreshed list that dropped a host must stop
+      // blocking it, and merged sets only ever grow (leaked blocks).
       for (const h of block) if (this.block.size < MAX_RULES) this.block.add(h)
       for (const h of allow) this.allow.add(h)
       console.log(`[omega] adblock: ${this.block.size} host rules, ${this.allow.size} exceptions`)
@@ -184,6 +186,10 @@ export class AdBlocker {
       if (!text.includes('||')) return
       writeFileSync(this.rulesPath, text, 'utf-8')
       const { block, allow } = parseRuleText(text)
+      // Rebuild from the fresh list (keep the builtin baseline): otherwise a
+      // host removed upstream stays blocked until relaunch.
+      this.block = new Set(BUILTIN_RULES)
+      this.allow = new Set()
       for (const h of block) if (this.block.size < MAX_RULES) this.block.add(h)
       for (const h of allow) this.allow.add(h)
       console.log(`[omega] adblock: refreshed -> ${this.block.size} host rules`)

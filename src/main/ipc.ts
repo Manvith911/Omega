@@ -11,12 +11,13 @@
  * one-frame stalls.
  */
 
-import { ipcMain, dialog, Menu, type BrowserWindow } from 'electron'
-import type { Rect, Settings, TabCreatePayload, ViewRect } from '@shared/ipc'
+import { ipcMain, dialog, Menu, app, type BrowserWindow } from 'electron'
+import type { ClearDataOptions, Rect, Settings, TabCreatePayload, ViewRect } from '@shared/ipc'
 import { SETTINGS_PAGE_URL } from '@shared/constants'
 import { openInNewWindow } from './detached-window'
 import type { AdBlocker } from './ad-blocker'
 import type { AiService } from './ai'
+import type { BookmarksStore } from './bookmarks'
 import type { DownloadsManager } from './downloads'
 import type { ExtensionsManager } from './extensions'
 import type { HistoryStore } from './history-store'
@@ -25,11 +26,13 @@ import type { PerfMonitor } from './perf'
 import type { SettingsStore } from './settings-store'
 import type { SuggestionController } from './suggestions'
 import type { TabManager } from './tab-manager'
+import type { UpdateService } from './updates'
 
 export interface IpcDeps {
   win: BrowserWindow
   tabs: TabManager
   history: HistoryStore
+  bookmarks: BookmarksStore
   settings: SettingsStore
   adBlock: AdBlocker
   perf: PerfMonitor
@@ -37,13 +40,18 @@ export interface IpcDeps {
   suggest: SuggestionController
   downloads: DownloadsManager
   extensions: ExtensionsManager
+  updates: UpdateService
   emitWindowState: () => void
   /** Builds options for detached windows (needs history + paths). */
   detachedWindowOptions: () => DetachedWindowOptions
+  /** Resolves the pending permission prompt. */
+  answerPermission: (granted: boolean) => void
+  /** Clears cache/cookies/storage on all tab sessions. */
+  clearData: (options: ClearDataOptions) => Promise<void>
 }
 
 export function registerIpcHandlers(deps: IpcDeps): void {
-  const { win, tabs, history, settings, adBlock, perf, ai, suggest, downloads, extensions } = deps
+  const { win, tabs, history, bookmarks, settings, adBlock, perf, ai, suggest, downloads, extensions, updates } = deps
 
   /** Detached windows share the history store and get the app icon. */
   const detachedOptions = (): DetachedWindowOptions => deps.detachedWindowOptions()
@@ -51,9 +59,10 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   // ── Tabs ──────────────────────────────────────────────────────────────────
 
   ipcMain.handle('tab:create', (_e, payload: TabCreatePayload = {}) => tabs.createTab(payload))
-  ipcMain.handle('page:open', (_e, page: 'settings' | 'history' | 'downloads' | 'extensions') =>
+  ipcMain.handle('page:open', (_e, page: 'settings' | 'history' | 'downloads' | 'extensions' | 'bookmarks' | 'about') =>
     tabs.openOrFocusPage(page),
   )
+  ipcMain.handle('tab:new-private', () => tabs.createTab({ incognito: true }))
   ipcMain.handle('page:kind', (_e) => {
     const senderUrl = new URL(_e.senderFrame?.url ?? 'about:blank')
     const path = senderUrl.pathname
@@ -200,6 +209,40 @@ export function registerIpcHandlers(deps: IpcDeps): void {
     deps.emitWindowState()
   })
   ipcMain.handle('win:close', () => win.close())
+  ipcMain.handle('win:toggle-fullscreen', () => {
+    if (win.isFullScreen()) win.setFullScreen(false)
+    else win.setFullScreen(true)
+  })
+
+  // ── Bookmarks ──────────────────────────────────────────────────────
+
+  ipcMain.handle('bookmarks:list', () => bookmarks.all())
+  ipcMain.handle('bookmarks:add', (_e, url: string, title: string) => bookmarks.add(url, title))
+  ipcMain.handle('bookmarks:remove', (_e, id: number) => bookmarks.remove(id))
+  ipcMain.handle('bookmarks:by-url', (_e, url: string) => bookmarks.byUrl(url))
+
+  // ── Browsing data ──────────────────────────────────────────────────
+
+  ipcMain.handle('data:clear', (_e, options: ClearDataOptions) => deps.clearData(options))
+
+  // ── App info / updates / print / permission prompt ─────────────────
+
+  ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    electron: process.versions.electron ?? '',
+    chrome: process.versions.chrome ?? '',
+    node: process.versions.node ?? '',
+  }))
+  ipcMain.handle('updates:check', () => updates.check())
+  ipcMain.handle('updates:download', () => updates.download())
+  ipcMain.handle('updates:install', () => updates.install())
+  ipcMain.handle('updates:status', () => updates.current())
+  ipcMain.handle('print', () => {
+    const id = tabs.getActiveTabId()
+    const wc = id !== null ? tabs.getWebContents(id) : null
+    if (wc && !wc.isDestroyed()) wc.print()
+  })
+  ipcMain.handle('permission:answer', (_e, granted: boolean) => deps.answerPermission(granted))
 
   // ── AI page assistant ─────────────────────────────────────────────────────
 
@@ -214,6 +257,13 @@ export function registerIpcHandlers(deps: IpcDeps): void {
   ipcMain.handle('downloads:show', (_e, id: string) => downloads.showInFolder(id))
   ipcMain.handle('downloads:cancel', (_e, id: string) => downloads.cancel(id))
   ipcMain.handle('downloads:clear-finished', () => downloads.clearFinished())
+  ipcMain.handle('downloads:pick-dir', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: 'Choose download folder',
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
 
   // ── Extensions ─────────────────────────────────────────────────────
 

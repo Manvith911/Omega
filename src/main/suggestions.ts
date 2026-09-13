@@ -15,7 +15,7 @@ import type { Rect, SuggestState, Suggestion } from '@shared/ipc'
 import type { HistoryStore } from './history-store'
 import type { SettingsStore } from './settings-store'
 import type { OverlayView } from './overlay-view'
-import { isProbablyUrl, searchUrlFor, toNavigationUrl } from '@shared/url'
+import { activeEngineTemplate, isProbablyUrl, searchUrlFor, toNavigationUrl } from '@shared/url'
 
 const EMPTY: SuggestState = { visible: false, query: '', items: [], activeIndex: -1 }
 
@@ -68,13 +68,14 @@ export class SuggestionController {
     const trimmed = query.trim()
     if (!trimmed) return []
 
-    const engine = this.settings.get().searchEngine
+    const s = this.settings.get()
+    const template = activeEngineTemplate(s.searchEngine, s.customSearchEngines)
     const out: Suggestion[] = []
     const seen = new Set<string>()
 
     // 1. A literal address, if what they typed could be one.
     if (isProbablyUrl(trimmed)) {
-      const url = toNavigationUrl(trimmed, engine)
+      const url = toNavigationUrl(trimmed, template)
       out.push({ url, title: trimmed, subtitle: 'Open address', visitCount: 0, kind: 'url' })
       seen.add(url)
     }
@@ -87,12 +88,16 @@ export class SuggestionController {
     }
 
     // 3. Always leave a way to search.
-    const searchUrl = searchUrlFor(trimmed, engine)
+    const searchUrl = searchUrlFor(trimmed, template)
     if (!seen.has(searchUrl)) {
+      const engineName =
+        SEARCH_ENGINES[s.searchEngine as keyof typeof SEARCH_ENGINES]?.name ??
+        s.customSearchEngines.find((e) => e.id === s.searchEngine)?.name ??
+        'Search'
       out.push({
         url: searchUrl,
         title: `Search for "${trimmed}"`,
-        subtitle: SEARCH_ENGINES[engine].name,
+        subtitle: engineName,
         visitCount: 0,
         kind: 'search',
       })

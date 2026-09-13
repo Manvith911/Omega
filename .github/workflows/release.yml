@@ -63,7 +63,16 @@ jobs:
           # Skip macOS code signing on CI — there is no signing identity in the
           # repo secrets, and electron-builder fails hard without this flag.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx electron-builder ${{ matrix.args }} --publish never
+          # electron-updater needs version info; keep it explicit.
+          EP_DRAFT: 'false'
+          EP_PRE_RELEASE: 'false'
+          # --publish always uploads installers + latest*.yml to the release.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # --publish always uploads latest.yml/latest-mac.yml alongside the
+        # installers in the same step — required for auto-update discovery.
+        # Each platform job re-uploads its own metadata file; latest.yml
+        # (Windows/Linux) comes from the windows job, latest-mac.yml from mac.
+        run: npx electron-builder ${{ matrix.args }} --publish always
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -75,7 +84,11 @@ jobs:
             release/*.zip
             release/*.AppImage
             release/*.deb
-          if-no-files-found: error
+            # Update metadata consumed by electron-updater. Without latest.yml
+            # installed clients cannot discover newer releases.
+            release/latest*.yml
+            release/*.blockmap
+          if-no-files-found: warn
 
   release:
     name: Attach artifacts to release
@@ -103,6 +116,8 @@ jobs:
             artifacts/*.zip
             artifacts/*.AppImage
             artifacts/*.deb
+            artifacts/latest*.yml
+            artifacts/*.blockmap
           fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   DOWNLOADS_PAGE_URL,
   EXTENSIONS_PAGE_URL,
@@ -13,11 +13,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  EyeOff,
   Puzzle,
   Reload,
   Settings,
   ShieldOff,
   Sparkles,
+  Star,
+  StarFilled,
   Stop,
 } from './Icons'
 import { Omnibox } from './Omnibox'
@@ -92,6 +95,36 @@ export function Toolbar(): React.JSX.Element {
       .then((next) => useChrome.getState().setSettings(next))
   }, [adBlockEnabled])
 
+  // ── Bookmark star: on for the exact URL of the active page ──
+  const [bookmarked, setBookmarked] = useState(false)
+  const isBookmarkable = !!activeUrl && activeUrl.startsWith('http')
+  useEffect(() => {
+    setBookmarked(false)
+    if (!isBookmarkable) return
+    void window.omega
+      .invoke('bookmarks:by-url', activeUrl)
+      .then((b) => setBookmarked(!!b))
+      .catch(() => undefined)
+  }, [activeUrl, isBookmarkable])
+
+  const toggleBookmark = useCallback(() => {
+    if (!tab || !isBookmarkable) return
+    if (bookmarked) {
+      void window.omega
+        .invoke('bookmarks:by-url', activeUrl)
+        .then((b) => {
+          if (b) return window.omega.invoke('bookmarks:remove', b.id)
+        })
+        .then(() => setBookmarked(false))
+        .catch(() => undefined)
+    } else {
+      void window.omega
+        .invoke('bookmarks:add', activeUrl, tab.title)
+        .then(() => setBookmarked(true))
+        .catch(() => undefined)
+    }
+  }, [activeUrl, bookmarked, isBookmarkable, tab])
+
   return (
     <div
       className="drag flex shrink-0 items-center gap-1.5 border-b border-chrome-border bg-chrome-surface px-2"
@@ -155,6 +188,22 @@ export function Toolbar(): React.JSX.Element {
           onClick={() => openPage('extensions')}
         >
           <Puzzle className="h-4 w-4" />
+        </IconButton>
+
+        <IconButton
+          label={bookmarked ? 'Bookmarked' : 'Bookmark this page'}
+          disabled={!bookmarked && !isBookmarkable}
+          active={bookmarked}
+          onClick={toggleBookmark}
+        >
+          {bookmarked ? <StarFilled className="h-4 w-4" /> : <Star className="h-4 w-4" />}
+        </IconButton>
+
+        <IconButton
+          label="New private tab"
+          onClick={() => void window.omega.invoke('tab:new-private')}
+        >
+          <EyeOff className="h-4 w-4" />
         </IconButton>
 
         <IconButton label="Page assistant" active={sidebarOpen} onClick={() => openPanel('sidebar')}>

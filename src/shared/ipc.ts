@@ -39,6 +39,8 @@ export interface TabMeta {
   lastActiveAt: number
   /** Set when a navigation failed; cleared on the next successful load. */
   error: string | null
+  /** Private tab: ephemeral session, no history writes, no session restore. */
+  incognito: boolean
 }
 
 export interface Rect {
@@ -64,6 +66,8 @@ export interface TabCreatePayload {
   background?: boolean
   /** Insert at a specific position in the strip. Defaults to after the active tab. */
   index?: number
+  /** Open in the ephemeral incognito session. */
+  incognito?: boolean
 }
 
 export interface NavPayload {
@@ -143,6 +147,46 @@ export interface Toast {
   message: string
 }
 
+export interface Bookmark {
+  id: number
+  url: string
+  title: string
+  addedAt: number
+}
+
+/** One persisted origin×permission decision. */
+export interface PermissionRule {
+  origin: string
+  permission: string
+  granted: boolean
+}
+
+export interface ClearDataOptions {
+  history: boolean
+  cache: boolean
+  cookies: boolean
+  /** Also clear localStorage / IndexedDB / service workers (implied by cookies). */
+  localStorage?: boolean
+  indexedDB?: boolean
+  serviceWorkers?: boolean
+}
+
+export interface AppInfo {
+  version: string
+  electron: string
+  chrome: string
+  node: string
+}
+
+export type UpdateStatus =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'available'; version: string }
+  | { state: 'not-available' }
+  | { state: 'downloading'; percent: number }
+  | { state: 'ready' }
+  | { state: 'error'; message: string }
+
 /** Mirrors the main-process download record, minus Electron types. */
 export interface DownloadInfo {
   id: string
@@ -178,11 +222,22 @@ export type UiCommand =
   | 'open-find'
   | 'close-overlays'
   | 'open-settings'
+  | 'open-bookmarks'
+  | 'open-about'
+  | 'toggle-fullscreen'
+  | 'print'
 
 export type SearchEngineId = 'google' | 'duckduckgo' | 'bing' | 'brave'
 
+/** A user-defined search engine; `url` must contain `%s` for the query. */
+export interface CustomSearchEngine {
+  id: string
+  name: string
+  url: string
+}
+
 export interface Settings {
-  searchEngine: SearchEngineId
+  searchEngine: string
   adBlockEnabled: boolean
   /** Idle ms before a hidden tab's JS timers are frozen. */
   freezeAfterMs: number
@@ -194,6 +249,24 @@ export interface Settings {
   aiEndpoint: string
   /** 'dark' or 'light' — drives the chrome color scheme. */
   theme: 'dark' | 'light'
+  /** Where downloads land. Empty = the OS Downloads folder. */
+  downloadsDir: string
+  /** Ask where to save each file (native Save dialog) instead of auto-saving. */
+  askDownloadLocation: boolean
+  /** Chromium auto-dark for web content. Takes effect on relaunch. */
+  forceDark: boolean
+  /** 'system' (OS default), 'direct' (never proxy), or 'fixed' (proxyServer). */
+  proxyMode: 'system' | 'direct' | 'fixed'
+ /** electron.proxyRules string, e.g. "http=host:8080;https=host:8080". */
+  proxyServer: string
+  /** User-defined engines, referenced by id from `searchEngine`. */
+  customSearchEngines: CustomSearchEngine[]
+  /** Per-origin zoom, persisted. Key: origin, value: zoom factor. */
+  zoomLevels: Record<string, number>
+  /** Persisted per-origin permission decisions. */
+  permissionRules: PermissionRule[]
+  /** Set after repeated GPU crashes: relaunches with acceleration off. */
+  gpuFallback?: boolean
   /** Window geometry + fullscreen/maximized state, restored on launch. */
   windowState?: PersistedWindowState
   /** Absolute folders of extensions to re-load on launch. */
@@ -225,6 +298,7 @@ export const INVOKE_CHANNELS = [
   'tab:reopen',
   'tab:mute',
   'tab:menu',
+  'tab:new-private',
   // navigation
   'nav:go',
   'nav:back',
@@ -258,12 +332,14 @@ export const INVOKE_CHANNELS = [
   'win:minimize',
   'win:maximize',
   'win:close',
+  'win:toggle-fullscreen',
   // downloads
   'downloads:list',
   'downloads:open',
   'downloads:show',
   'downloads:cancel',
   'downloads:clear-finished',
+  'downloads:pick-dir',
   // extensions
   'extensions:list',
   'extensions:load',
@@ -275,12 +351,29 @@ export const INVOKE_CHANNELS = [
   'ai:extract',
   'ai:ask',
   'ai:abort',
+  // bookmarks
+  'bookmarks:list',
+  'bookmarks:add',
+  'bookmarks:remove',
+  'bookmarks:by-url',
+  // browsing data
+  'data:clear',
+  // app info + updates
+  'app:info',
+  'updates:check',
+  'updates:download',
+  'updates:install',
+  'updates:status',
+  // printing
+  'print',
+  // permission prompt answer (chrome UI -> main)
+  'permission:answer',
 ] as const
 
 export type InvokeChannel = (typeof INVOKE_CHANNELS)[number]
 
 export interface InvokeMap {
-  'page:open': { args: [page: 'settings' | 'history' | 'downloads' | 'extensions']; result: TabMeta | null }
+  'page:open': { args: [page: 'settings' | 'history' | 'downloads' | 'extensions' | 'bookmarks' | 'about']; result: TabMeta | null }
   'tab:create': { args: [payload?: TabCreatePayload]; result: TabMeta }
   'tab:close': { args: [tabId: number]; result: void }
   'tab:close-others': { args: [tabId: number]; result: void }
@@ -291,6 +384,7 @@ export interface InvokeMap {
   'tab:reopen': { args: []; result: TabMeta | null }
   'tab:mute': { args: [tabId: number, muted: boolean]; result: void }
   'tab:menu': { args: [tabId: number, position: { x: number; y: number }]; result: void }
+  'tab:new-private': { args: []; result: TabMeta }
   'nav:go': { args: [payload: NavPayload]; result: void }
   'nav:back': { args: [tabId: number]; result: void }
   'nav:forward': { args: [tabId: number]; result: void }
@@ -316,11 +410,13 @@ export interface InvokeMap {
   'win:minimize': { args: []; result: void }
   'win:maximize': { args: []; result: void }
   'win:close': { args: []; result: void }
+  'win:toggle-fullscreen': { args: []; result: void }
   'downloads:list': { args: []; result: DownloadInfo[] }
   'downloads:open': { args: [id: string]; result: boolean }
   'downloads:show': { args: [id: string]; result: void }
   'downloads:cancel': { args: [id: string]; result: void }
   'downloads:clear-finished': { args: []; result: void }
+  'downloads:pick-dir': { args: []; result: string | null }
   'extensions:list': { args: []; result: ExtensionInfo[] }
   'extensions:load': { args: []; result: ExtensionInfo }
   'extensions:remove': { args: [id: string]; result: boolean }
@@ -329,6 +425,18 @@ export interface InvokeMap {
   'ai:extract': { args: [tabId: number]; result: PageContent | null }
   'ai:ask': { args: [tabId: number, prompt: string]; result: string }
   'ai:abort': { args: [id: string]; result: void }
+  'bookmarks:list': { args: []; result: Bookmark[] }
+  'bookmarks:add': { args: [url: string, title: string]; result: Bookmark }
+  'bookmarks:remove': { args: [id: number]; result: void }
+  'bookmarks:by-url': { args: [url: string]; result: Bookmark | null }
+  'data:clear': { args: [options: ClearDataOptions]; result: void }
+  'app:info': { args: []; result: AppInfo }
+  'updates:check': { args: []; result: UpdateStatus }
+  'updates:download': { args: []; result: UpdateStatus }
+  'updates:install': { args: []; result: void }
+  'updates:status': { args: []; result: UpdateStatus }
+  'print': { args: []; result: void }
+  'permission:answer': { args: [granted: boolean]; result: void }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -351,6 +459,8 @@ export const EVENT_CHANNELS = [
   'ui:command',
   'downloads:updated',
   'settings:changed',
+  'updates:status',
+  'permission:request',
 ] as const
 
 export type EventChannel = (typeof EVENT_CHANNELS)[number]
@@ -373,6 +483,8 @@ export interface EventMap {
   'ui:command': UiCommand
   'downloads:updated': DownloadInfo[]
   'settings:changed': Settings
+  'updates:status': UpdateStatus
+  'permission:request': { origin: string; permission: string }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

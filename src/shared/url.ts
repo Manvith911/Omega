@@ -1,7 +1,19 @@
 import { SEARCH_ENGINES } from './constants'
-import type { SearchEngineId } from './ipc'
+import type { CustomSearchEngine } from './ipc'
 
 const SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//
+
+/**
+ * Custom engines carry `%s`; built-ins append the query. Both shapes are
+ * normalized to a template here so every call site has one branch.
+ */
+export function engineTemplate(engine: string, custom: CustomSearchEngine[]): string | null {
+  const builtIn = SEARCH_ENGINES[engine as keyof typeof SEARCH_ENGINES]
+  if (builtIn) return builtIn.url + '%s'
+  const found = custom.find((e) => e.id === engine)
+  if (found && found.url.includes('%s')) return found.url
+  return null
+}
 
 /** Schemes we are willing to navigate to inside a tab. */
 const IN_TAB_SCHEMES = new Set(['http', 'https', 'file', 'omega', 'about', 'view-source', 'data'])
@@ -35,15 +47,20 @@ export function isProbablyUrl(raw: string): boolean {
   return false
 }
 
-export function searchUrlFor(query: string, engine: SearchEngineId): string {
-  return SEARCH_ENGINES[engine].url + encodeURIComponent(query)
+/** Resolves the active engine's template, falling back to DuckDuckGo. */
+export function activeEngineTemplate(engine: string, custom: CustomSearchEngine[]): string {
+  return engineTemplate(engine, custom) ?? (SEARCH_ENGINES.duckduckgo.url + '%s')
+}
+
+export function searchUrlFor(query: string, template: string): string {
+  return template.replace('%s', encodeURIComponent(query))
 }
 
 /**
  * Turns whatever the user typed into something loadable. There are exactly
  * three outcomes: an internal page, a real URL, or a search.
  */
-export function toNavigationUrl(raw: string, engine: SearchEngineId): string {
+export function toNavigationUrl(raw: string, template: string): string {
   const s = raw.trim()
   if (!s) return 'omega://newtab'
   if (isProbablyUrl(s)) {
@@ -51,7 +68,7 @@ export function toNavigationUrl(raw: string, engine: SearchEngineId): string {
     if (LOCALHOST_RE.test(s) || IPV4_RE.test(s) || IPV6_RE.test(s)) return `http://${s}`
     return `https://${s}`
   }
-  return searchUrlFor(s, engine)
+  return searchUrlFor(s, template)
 }
 
 /** What the omnibox shows when it is not focused. */

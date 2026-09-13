@@ -82,8 +82,23 @@ const PAGE_ALLOWED_INVOKES = new Set<string>([
   'extensions:load',
   'extensions:remove',
   'extensions:set-enabled',
+  'bookmarks:list',
+  'bookmarks:add',
+  'bookmarks:remove',
+  'bookmarks:by-url',
+  'data:clear',
+  'app:info',
+  'updates:check',
+  'updates:download',
+  'updates:install',
+  'updates:status',
 ])
-const PAGE_ALLOWED_EVENTS = new Set<string>(['toast', 'downloads:updated', 'settings:changed'])
+const PAGE_ALLOWED_EVENTS = new Set<string>([
+  'toast',
+  'downloads:updated',
+  'settings:changed',
+  'updates:status',
+])
 
 /**
  * Whether this tab renderer is currently showing an Omega page rather than

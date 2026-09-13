@@ -215,3 +215,37 @@ export const Puzzle = (p: IconProps): React.JSX.Element => (
     />
   </Base>
 )
+
+export const Star = (p: IconProps): React.JSX.Element => (
+  <Base {...p}>
+    <path
+      d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.2L8 11.6l-3.8 1.9.7-4.2-3.1-3 4.3-.6L8 1.8Z"
+      {...stroke}
+    />
+  </Base>
+)
+
+export const StarFilled = (p: IconProps): React.JSX.Element => (
+  <Base {...p}>
+    <path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.2L8 11.6l-3.8 1.9.7-4.2-3.1-3 4.3-.6L8 1.8Z" fill="currentColor" stroke="none" />
+  </Base>
+)
+
+export const EyeOff = (p: IconProps): React.JSX.Element => (
+  <Base {...p}>
+    <path d="M3 3l10 10M6.2 6.3A5.6 5.6 0 0 0 2.4 8s2.2 3.8 5.6 3.8c.8 0 1.6-.2 2.3-.5M9.4 4.4a5.7 5.7 0 0 1 4.2 3.6s-.5.9-1.4 1.8M6.9 6.9a1.6 1.6 0 0 0 2.2 2.2" {...stroke} />
+  </Base>
+)
+
+export const Info = (p: IconProps): React.JSX.Element => (
+  <Base {...p}>
+    <circle cx="8" cy="8" r="6.2" {...stroke} />
+    <path d="M8 7.2v4M8 4.9v.2" {...stroke} />
+  </Base>
+)
+
+export const Print = (p: IconProps): React.JSX.Element => (
+  <Base {...p}>
+    <path d="M4.5 5.5V2.5h7v3M4.5 11.5h-2v-4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v4h-2M4.5 9.5h7v4h-7v-4Z" {...stroke} />
+  </Base>
+)

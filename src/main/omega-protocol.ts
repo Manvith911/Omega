@@ -25,7 +25,7 @@ import { existsSync } from 'node:fs'
 import { extname, normalize, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { PROD_UI_CSP, SEARCH_ENGINES } from '@shared/constants'
-import { toNavigationUrl } from '@shared/url'
+import { activeEngineTemplate, toNavigationUrl } from '@shared/url'
 import type { HistoryStore } from './history-store'
 import type { SettingsStore } from './settings-store'
 
@@ -113,7 +113,11 @@ function createHandler(
     if (url.hostname === 'search') {
       const query = (url.searchParams.get('q') ?? '').trim()
       if (!query) return notFound()
-      return Response.redirect(toNavigationUrl(query, settings.get().searchEngine), 302)
+      const s = settings.get()
+      return Response.redirect(
+        toNavigationUrl(query, activeEngineTemplate(s.searchEngine, s.customSearchEngines)),
+        302,
+      )
     }
 
     if (url.hostname !== 'app') return notFound()
@@ -173,7 +177,11 @@ function escapeHtml(input: string): string {
 }
 
 function renderNewTab(settings: SettingsStore, history: HistoryStore): string {
-  const engine = SEARCH_ENGINES[settings.get().searchEngine]
+  const s = settings.get()
+  const engineName =
+    SEARCH_ENGINES[s.searchEngine as keyof typeof SEARCH_ENGINES]?.name ??
+    s.customSearchEngines.find((e) => e.id === s.searchEngine)?.name ??
+    'DuckDuckGo'
   const tiles = (() => {
     try {
       return history.topSites(8)
@@ -281,7 +289,7 @@ function renderNewTab(settings: SettingsStore, history: HistoryStore): string {
        resolves the engine at submit time, so an already-open new tab page
        follows a later engine change. -->
   <form action="omega://search" method="GET" role="search">
-    <input id="omega-q" type="search" name="q" placeholder="Search ${escapeHtml(engine.name)} or enter an address" autofocus autocomplete="off" spellcheck="false" aria-label="Search" />
+    <input id="omega-q" type="search" name="q" placeholder="Search ${escapeHtml(engineName)} or enter an address" autofocus autocomplete="off" spellcheck="false" aria-label="Search" />
   </form>
 
   <script>

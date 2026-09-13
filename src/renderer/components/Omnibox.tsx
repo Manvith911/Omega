@@ -178,6 +178,10 @@ export function Omnibox(): React.JSX.Element {
             setActiveIndex(-1)
             void window.omega.invoke('suggest:dismiss')
           } else {
+            // Chrome behaviour: Escape reverts the box to the page URL and
+            // drops the draft — the half-typed text was abandoned.
+            draftRef.current = null
+            setValue(prettyUrl(tabUrl))
             inputRef.current?.blur()
           }
           break

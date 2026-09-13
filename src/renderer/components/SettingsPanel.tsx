@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import { SEARCH_ENGINES } from '@shared/constants'
-import type { SearchEngineId, Settings } from '@shared/ipc'
-import { Close, Settings as SettingsIcon, Sun, Moon as MoonIcon } from './Icons'
+import type { ClearDataOptions, CustomSearchEngine, SearchEngineId, Settings } from '@shared/ipc'
+import { prettyUrl } from '@shared/url'
+import { Close, Settings as SettingsIcon, Sun, Moon as MoonIcon, Plus, Trash } from './Icons'
+
+const MINUTE = 60_000
+
+const inputClass =
+  'h-7 rounded-lg border border-chrome-border bg-white/5 px-2 text-[12px] outline-none focus:border-chrome-accent/60'
+
+const btnClass =
+  'flex h-7 items-center gap-1.5 rounded-lg border border-chrome-border px-2.5 text-[11.5px] text-chrome-fg/85 transition-colors hover:border-chrome-accent/50 hover:text-chrome-fg disabled:opacity-50'
 
 type Row = { label: string; hint?: string; control: React.ReactNode }
 
@@ -17,8 +26,48 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   )
 }
 
-const inputClass =
-  'h-7 rounded-lg border border-chrome-border bg-white/5 px-2 text-[12px] outline-none focus:border-chrome-accent/60'
+/** Per-origin permission rules with per-entry remove. */
+function PermissionRulesList({ settings, onChange }: { settings: Settings; onChange: (rules: Settings['permissionRules']) => void }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const rules = settings.permissionRules
+  if (rules.length === 0 && !open) {
+    return (
+      <button type="button" className={btnClass} onClick={() => setOpen(true)}>
+        Show
+      </button>
+    )
+  }
+  return (
+    <span className="flex flex-col items-end gap-1">
+      {rules.length === 0 ? <span className="text-[11px] text-chrome-dim">No decisions saved</span> : null}
+      {rules.map((rule) => (
+        <span key={`${rule.origin}:${rule.permission}`} className="flex items-center gap-2 text-[11px] text-chrome-dim">
+          <span className="max-w-52 truncate">{prettyUrl(rule.origin)}</span>
+          <span className={rule.granted ? 'text-emerald-400/90' : 'text-rose-400/90'}>
+            {rule.granted ? 'allowed' : 'blocked'} · {rule.permission}
+          </span>
+          <button
+            type="button"
+            aria-label="Remove rule"
+            className="flex h-6 w-6 items-center justify-center rounded-lg text-chrome-muted hover:bg-white/10 hover:text-chrome-fg"
+            onClick={() => onChange(rules.filter((r) => !(r.origin === rule.origin && r.permission === rule.permission)))}
+          >
+            <Trash className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      {rules.length > 0 ? (
+        <button type="button" className={btnClass} onClick={() => onChange([])}>
+          Reset all
+        </button>
+      ) : (
+        <button type="button" className={btnClass} onClick={() => setOpen(false)}>
+          Hide
+        </button>
+      )}
+    </span>
+  )
+}
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (next: boolean) => void }): React.JSX.Element {
   return (
@@ -36,8 +85,6 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (next: boolean) => vo
   )
 }
 
-const MINUTE = 60_000
-
 /**
  * The Settings page — a real tab (omega://app/settings.html), not a chrome
  * overlay. Self-contained: loads its own settings over the reduced page API
@@ -46,16 +93,19 @@ const MINUTE = 60_000
 export function SettingsPanel(): React.JSX.Element {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [theme, setTheme] = useState<'dark' | 'light'>('dark')
+  const [busy, setBusy] = useState(false)
+  const [newEngine, setNewEngine] = useState<{ name: string; url: string } | null>(null)
+
+  const reloadSettings = useCallback(() => {
+    void window.omega.invoke('settings:get').then((s) => {
+      setSettings(s)
+      setTheme(s.theme)
+      document.body.classList.toggle('light', s.theme === 'light')
+    }).catch(() => undefined)
+  }, [])
 
   useEffect(() => {
-    void window.omega
-      .invoke('settings:get')
-      .then((s) => {
-        setSettings(s)
-        setTheme(s.theme)
-        document.body.classList.toggle('light', s.theme === 'light')
-      })
-      .catch(() => undefined)
+    reloadSettings()
     // Keep this page in sync when another surface changes settings (e.g. the
     // toolbar's ad-block toggle) instead of showing a stale view.
     return window.omega.on('settings:changed', (next) => {
@@ -63,7 +113,7 @@ export function SettingsPanel(): React.JSX.Element {
       setTheme(next.theme)
       document.body.classList.toggle('light', next.theme === 'light')
     })
-  }, [])
+  }, [reloadSettings])
 
   const update = useCallback((patch: Partial<Settings>) => {
     void window.omega
@@ -82,6 +132,29 @@ export function SettingsPanel(): React.JSX.Element {
   const closeTab = useCallback(() => {
     if (window.omega.tabId !== null) void window.omega.invoke('tab:close', window.omega.tabId)
   }, [])
+
+  const pickDownloadDir = useCallback(() => {
+    setBusy(true)
+    void window.omega
+      .invoke('downloads:pick-dir')
+      .then((dir) => {
+        if (dir) update({ downloadsDir: dir })
+      })
+      .catch(() => undefined)
+      .finally(() => setBusy(false))
+  }, [update])
+
+  const clearData = useCallback(
+    (options: ClearDataOptions) => {
+      setBusy(true)
+      void window.omega
+        .invoke('data:clear', options)
+        .then(() => reloadSettings())
+        .catch(() => undefined)
+        .finally(() => setBusy(false))
+    },
+    [reloadSettings],
+  )
 
   if (!settings) {
     return <p className="p-6 text-[12px] text-chrome-dim">Loading settings…</p>
@@ -127,6 +200,11 @@ export function SettingsPanel(): React.JSX.Element {
           {Object.entries(SEARCH_ENGINES).map(([id, engine]) => (
             <option key={id} value={id} className="bg-chrome-elevated">
               {engine.name}
+            </option>
+          ))}
+          {settings.customSearchEngines.map((engine) => (
+            <option key={engine.id} value={engine.id} className="bg-chrome-elevated">
+              {engine.name} (custom)
             </option>
           ))}
         </select>
@@ -209,6 +287,142 @@ export function SettingsPanel(): React.JSX.Element {
           spellCheck={false}
           className={`${inputClass} w-72`}
         />
+      ),
+    },
+    {
+      label: 'Download location',
+      hint: 'Where files are saved. Leave empty for the OS Downloads folder.',
+      control: (
+        <span className="flex items-center gap-2">
+          <input
+            value={settings.downloadsDir}
+            onChange={(event) => update({ downloadsDir: event.target.value })}
+            placeholder="Downloads"
+            spellCheck={false}
+            className={`${inputClass} w-64`}
+          />
+          <button type="button" className={btnClass} onClick={pickDownloadDir} disabled={busy}>
+            Browse…
+          </button>
+        </span>
+      ),
+    },
+    {
+      label: 'Ask where to save each file',
+      hint: 'Shows the native Save dialog for every download instead of saving automatically.',
+      control: <Toggle on={settings.askDownloadLocation} onChange={(next) => update({ askDownloadLocation: next })} />,
+    },
+    {
+      label: 'Dark mode for websites',
+      hint: 'Makes light websites dark automatically (Chromium auto-dark). Takes effect after a relaunch.',
+      control: <Toggle on={settings.forceDark} onChange={(next) => update({ forceDark: next })} />,
+    },
+    {
+      label: 'Proxy',
+      hint: '“System” follows the OS proxy. “Fixed” uses the rules below, e.g. http=127.0.0.1:8080. Applied on relaunch.',
+      control: (
+        <span className="flex items-center gap-2">
+          <select
+            value={settings.proxyMode}
+            onChange={(event) => update({ proxyMode: event.target.value as Settings['proxyMode'] })}
+            className={inputClass}
+          >
+            <option value="system">System</option>
+            <option value="direct">No proxy</option>
+            <option value="fixed">Fixed servers</option>
+          </select>
+          <input
+            value={settings.proxyServer}
+            onChange={(event) => update({ proxyServer: event.target.value })}
+            placeholder="http=host:port;https=host:port"
+            spellCheck={false}
+            disabled={settings.proxyMode !== 'fixed'}
+            className={`${inputClass} w-56 disabled:opacity-40`}
+          />
+        </span>
+      ),
+    },
+    {
+      label: 'Custom search engines',
+      hint: 'Use %s in the URL where the query goes.',
+      control: (
+        <span className="flex flex-col items-end gap-1.5">
+          {settings.customSearchEngines.length === 0 && !newEngine ? (
+            <span className="text-[11px] text-chrome-dim">None yet</span>
+          ) : (
+            settings.customSearchEngines.map((engine) => (
+              <span key={engine.id} className="flex items-center gap-2 text-[11px] text-chrome-dim">
+                <span className="max-w-52 truncate">{engine.name} — {prettyUrl(engine.url)}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${engine.name}`}
+                  className="flex h-6 w-6 items-center justify-center rounded-lg text-chrome-muted hover:bg-white/10 hover:text-chrome-fg"
+                  onClick={() => {
+                    const rest = settings.customSearchEngines.filter((e) => e.id !== engine.id)
+                    update({
+                      customSearchEngines: rest,
+                      searchEngine: settings.searchEngine === engine.id ? 'duckduckgo' : settings.searchEngine,
+                    })
+                  }}
+                >
+                  <Trash className="h-3 w-3" />
+                </button>
+              </span>
+            ))
+          )}
+          {newEngine ? (
+            <span className="flex items-end gap-1.5">
+              <span className="flex flex-col gap-1">
+                <input value={newEngine.name} onChange={(e) => setNewEngine({ ...newEngine, name: e.target.value })} placeholder="Name" className={`${inputClass} w-32`} />
+                <input value={newEngine.url} onChange={(e) => setNewEngine({ ...newEngine, url: e.target.value })} placeholder="https://…?q=%s" spellCheck={false} className={`${inputClass} w-64`} />
+              </span>
+              <button
+                type="button"
+                className={btnClass}
+                onClick={() => {
+                  const url = newEngine.url.trim()
+                  const name = newEngine.name.trim()
+                  if (!url || !url.includes('%s')) return
+                  const id = `custom-${Date.now().toString(36)}`
+                  const engine: CustomSearchEngine = { id, name: name || id, url }
+                  update({ customSearchEngines: [...settings.customSearchEngines, engine], searchEngine: id })
+                  setNewEngine(null)
+                }}
+              >
+                Save
+              </button>
+              <button type="button" className={btnClass} onClick={() => setNewEngine(null)}>
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button type="button" className={btnClass} onClick={() => setNewEngine({ name: '', url: '' })}>
+              <Plus className="h-3 w-3" /> Add engine
+            </button>
+          )}
+        </span>
+      ),
+    },
+    {
+      label: 'Site permissions',
+      hint: 'Sites you have allowed or blocked for camera, microphone, notifications and location.',
+      control: <PermissionRulesList settings={settings} onChange={(rules) => update({ permissionRules: rules })} />,
+    },
+    {
+      label: 'Clear browsing data',
+      hint: 'Removes cookies, cache and site data from the browsing session. History is cleared on the History page.',
+      control: (
+        <span className="flex items-center gap-2">
+          <button type="button" className={btnClass} onClick={() => clearData({ history: false, cookies: true, cache: false })} disabled={busy}>
+            Cookies
+          </button>
+          <button type="button" className={btnClass} onClick={() => clearData({ history: false, cookies: false, cache: true })} disabled={busy}>
+            Cached files
+          </button>
+          <button type="button" className={btnClass} onClick={() => clearData({ history: false, cookies: true, cache: true, localStorage: true, indexedDB: true, serviceWorkers: true })} disabled={busy}>
+            Everything
+          </button>
+        </span>
       ),
     },
   ]

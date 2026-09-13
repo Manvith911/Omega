@@ -31,20 +31,33 @@ export function FindBar(): React.JSX.Element {
     void window.omega.invoke('find:stop')
   }, [])
 
+  /** One findInPage per keystroke hammers large pages; 120ms is invisible. */
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+  }, [])
+
   const close = useCallback(() => {
     stop()
     setFindOpen(false)
   }, [setFindOpen, stop])
 
-  const search = useCallback((value: string) => {
-    setText(value)
-    sessionStorage.setItem('omega:find-text', value)
-    if (value) void window.omega.invoke('find:start', value).then(setResult)
-    else {
-      stop()
-      setResult({ matches: 0, active: 0 })
-    }
-  }, [stop])
+  const search = useCallback(
+    (value: string) => {
+      setText(value)
+      sessionStorage.setItem('omega:find-text', value)
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (value) {
+        debounceRef.current = setTimeout(() => {
+          void window.omega.invoke('find:start', value).then(setResult).catch(() => undefined)
+        }, 120)
+      } else {
+        stop()
+        setResult({ matches: 0, active: 0 })
+      }
+    },
+    [stop],
+  )
 
   const step = useCallback(
     (forward: boolean) => {

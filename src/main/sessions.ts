@@ -7,56 +7,134 @@
  *   - the UI's CSP has to be loosened to whatever the most permissive site needs,
  *   - and a compromised UI window and a compromised web page share cookies.
  *
- * So: `defaultSession` for the chrome (only ever loads our own files), and a
- * dedicated *persistent* partition for web content so logins survive restarts.
+ * So: `defaultSession` for the chrome (only ever loads our own files), a
+ * dedicated *persistent* partition for web content so logins survive restarts,
+ * and an in-memory partition for incognito tabs where nothing touches disk.
  */
 
-import { app, session, type Session } from 'electron'
+import { session, type Session } from 'electron'
 import { PROD_UI_CSP } from '@shared/constants'
+import type { PermissionRule, Settings } from '@shared/ipc'
 
 export const TAB_PARTITION = 'persist:omega-web'
+/** In-memory partition: cookies/storage die with the process, nothing on disk. */
+export const INCOGNITO_PARTITION = 'omega-incognito'
 
-/** Origins allowed to use mic/camera without a visible prompt. */
+/**
+ * Origins granted media without prompting. Users can override per-origin via
+ * the permission prompt / settings (see permissionRules below).
+ */
 const TRUSTED_MEDIA_ORIGINS = new Set(['https://meet.google.com', 'https://discord.com', 'https://web.whatsapp.com'])
 
 /** Permissions granted without a prompt because they are harmless and noisy. */
 const SILENT_ALLOW = new Set(['fullscreen', 'clipboard-sanitized-write', 'background-sync'])
 
-export function createTabSession(): Session {
-  const tabSession = session.fromPartition(TAB_PARTITION)
+/** Permissions that will raise an interactive prompt when not yet decided. */
+const PROMPTABLE = new Set(['media', 'geolocation', 'notifications', 'midi', 'midiSysex'])
 
-  // ── Deny by default ──
-  // Electron's default for several of these is to *grant*. Without an explicit
-  // handler, any page can ask for geolocation, the microphone, or notifications
-  // and get it. This is the single biggest silent hole in a hand-rolled browser.
-  tabSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
+export interface PermissionPromptHost {
+  /**
+   * Shows the Allow/Deny prompt for a permission request. Resolves true to
+   * grant. Must be called on the main thread; the chrome UI renders it.
+   */
+  ask: (origin: string, permission: string) => Promise<boolean>
+  /** Persisted rules from settings (origin+permission -> granted). */
+  rules: () => PermissionRule[]
+  /** Record a user decision. */
+  onDecide: (rule: PermissionRule) => void
+}
+
+/**
+ * Installs the permission pipeline on a tab-capable session. Both the normal
+ * and the incognito session get identical policy; prompts route through the
+ * chrome UI so the user always decides.
+ */
+export function installPermissionHandlers(s: Session, host: PermissionPromptHost): void {
+  s.setPermissionRequestHandler((_wc, permission, callback, details) => {
     if (SILENT_ALLOW.has(permission)) {
       callback(true)
       return
     }
-    if (permission === 'media') {
-      const origin = safeOrigin(details.requestingUrl)
-      callback(!!origin && TRUSTED_MEDIA_ORIGINS.has(origin))
+    const origin = safeOrigin(details.requestingUrl)
+
+    // A persisted rule always wins — no re-prompting for a decided origin.
+    const rule = host.rules().find((r) => r.origin === origin && r.permission === permission)
+    if (rule) {
+      callback(rule.granted)
       return
     }
-    callback(false)
+
+    if (permission === 'media') {
+      // No stored decision: trusted origins pass, everything else prompts.
+      if (origin && TRUSTED_MEDIA_ORIGINS.has(origin)) {
+        callback(true)
+        return
+      }
+      if (!origin || !PROMPTABLE.has(permission)) {
+        callback(false)
+        return
+      }
+    } else if (!PROMPTABLE.has(permission)) {
+      callback(false)
+      return
+    }
+
+    // Interactive decision. Chromium requires the callback to be invoked
+    // exactly once; bridge the async UI answer back synchronously.
+    void host
+      .ask(origin, permission)
+      .then((granted) => {
+        host.onDecide({ origin, permission, granted })
+        callback(granted)
+      })
+      .catch(() => callback(false))
   })
 
   // Second gate: some code paths query permission *state* without ever
-  // raising a request, and would otherwise read as granted.
-  tabSession.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
+  // raising a request. Persisted rules and trusted origins read as granted;
+  // everything else reads as denied (prompt happens on request).
+  s.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
     if (SILENT_ALLOW.has(permission)) return true
-    if (permission === 'media') return TRUSTED_MEDIA_ORIGINS.has(safeOrigin(requestingOrigin))
+    const origin = safeOrigin(requestingOrigin)
+    const rule = host.rules().find((r) => r.origin === origin && r.permission === permission)
+    if (rule) return rule.granted
+    if (permission === 'media') return !!origin && TRUSTED_MEDIA_ORIGINS.has(origin)
     return false
   })
 
   // Screen capture always requires an explicit source picked by us. Until
   // there is UI for that, denying is the only safe answer.
-  tabSession.setDisplayMediaRequestHandler((_request, callback) => {
+  s.setDisplayMediaRequestHandler((_request, callback) => {
     callback({})
   })
+}
 
+/** Proxy configuration from settings, applied at session creation time. */
+function applyProxy(s: Session, settings: Settings): void {
+  try {
+    if (settings.proxyMode === 'direct') {
+      s.setProxy({ mode: 'direct' })
+    } else if (settings.proxyMode === 'fixed' && settings.proxyServer.trim()) {
+      s.setProxy({ mode: 'fixed_servers', proxyRules: settings.proxyServer.trim() })
+    } else {
+      s.setProxy({ mode: 'system' })
+    }
+  } catch (err) {
+    console.warn('[omega] proxy configuration failed:', err)
+  }
+}
+
+export function createTabSession(settings: Settings): Session {
+  const tabSession = session.fromPartition(TAB_PARTITION)
+  applyProxy(tabSession, settings)
   return tabSession
+}
+
+/** Incognito twin of the tab session: same policy, zero persistence. */
+export function createIncognitoSession(settings: Settings): Session {
+  const incognito = session.fromPartition(INCOGNITO_PARTITION)
+  applyProxy(incognito, settings)
+  return incognito
 }
 
 /**
@@ -103,6 +181,3 @@ function safeOrigin(url: string): string {
     return ''
   }
 }
-
-/** True while the browser process is still the only thing that exists. */
-export const beforeReady = (): boolean => !app.isReady()

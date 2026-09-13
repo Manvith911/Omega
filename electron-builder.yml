@@ -2,6 +2,12 @@ appId: com.omega.browser
 productName: Omega
 copyright: © 2026 Omega
 
+# Update feed: GitHub releases. electron-updater reads latest.yml from here.
+publish:
+  provider: github
+  owner: Manvith911
+  repo: Omega
+
 directories:
   buildResources: build
   output: release

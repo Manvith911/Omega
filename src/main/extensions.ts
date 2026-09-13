@@ -16,6 +16,8 @@
  */
 
 import { type Session } from 'electron'
+import { existsSync, readFileSync } from 'node:fs'
+import { extname, join } from 'node:path'
 
 export interface ExtensionRecord {
   id: string
@@ -155,7 +157,7 @@ export class ExtensionsManager {
 }
 
 function snapshot(ext: Electron.Extension): Tracked['info'] {
-  const icon = pickIcon(ext.manifest)
+  const icon = pickIcon(ext.path, ext.manifest)
   return {
     name: ext.name ?? 'Unnamed extension',
     version: ext.version ?? '0.0.0',
@@ -164,11 +166,31 @@ function snapshot(ext: Electron.Extension): Tracked['info'] {
   }
 }
 
-function pickIcon(manifest: Record<string, unknown> | undefined): string | undefined {
+/**
+ * Returns the extension icon as a data URL. The manifest value is a path
+ * RELATIVE to the extension folder — handing it to an <img> as-is resolves
+ * against the page origin and 404s, so the bytes are inlined instead.
+ */
+function pickIcon(extPath: string, manifest: Record<string, unknown> | undefined): string | undefined {
   if (!manifest) return undefined
   const icons = manifest['icons'] as Record<string, string> | undefined
   if (!icons) return undefined
   // Largest key wins; keys are sizes as strings.
   const best = Object.keys(icons).sort((a, b) => Number(b) - Number(a))[0]
-  return best ? icons[best] : undefined
+  if (!best) return undefined
+  try {
+    const rel = icons[best]
+    if (typeof rel !== 'string') return undefined
+    const abs = join(extPath, rel)
+    if (!existsSync(abs)) return undefined
+    const ext = extname(abs).toLowerCase()
+    const mime = ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : ext === '.svg' ? 'image/svg+xml' : ext === '.webp' ? 'image/webp' : null
+    if (!mime) return undefined
+    const buf = readFileSync(abs)
+    // Cap what we inline: a pathological icon should not bloat IPC.
+    if (buf.byteLength > 256 * 1024) return undefined
+    return `data:${mime};base64,${buf.toString('base64')}`
+  } catch {
+    return undefined
+  }
 }

@@ -9,20 +9,29 @@
  *      the ad blocker attaches to the tab session's webRequest.
  *   3. The overlay view is created before the tab manager so that the first
  *      `addChildView` has something to stack against.
+ *
+ * Everything inside `createWindow` is built ONCE and stored at module scope.
+ * On macOS, `activate` can call `createWindow` again after the last window
+ * closes; without singletons the second call would double-register IPC
+ * handlers (which throws) and double-attach the download interceptor. The
+ * window-specific parts are rebuilt per call; services are not.
  */
 
-import { BrowserWindow, app, session, shell } from 'electron'
+import { BrowserWindow, app, screen, session, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { DOWNLOADS_PAGE_URL, MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH } from '@shared/constants'
 import { AdBlocker } from './ad-blocker'
 import { AiService } from './ai'
 import { applyCommandLineFlags } from './app-flags'
+import { BookmarksStore } from './bookmarks'
+import { clearBrowsingData } from './clear-data'
 import {
   closeAllDetachedWindows,
   detachedWebContents,
   type DetachedWindowOptions,
 } from './detached-window'
+import { clampBoundsToDisplays } from './display-bounds'
 import { DownloadsManager } from './downloads'
 import { ExtensionsManager } from './extensions'
 import { HistoryStore } from './history-store'
@@ -31,10 +40,16 @@ import { installAppMenu } from './menu'
 import { APP_ORIGIN, registerOmegaScheme, serveOmegaProtocol } from './omega-protocol'
 import { OverlayView } from './overlay-view'
 import { PerfMonitor } from './perf'
-import { createTabSession, hardenUiSession } from './sessions'
+import {
+  createIncognitoSession,
+  createTabSession,
+  hardenUiSession,
+  installPermissionHandlers,
+} from './sessions'
 import { SettingsStore } from './settings-store'
 import { SuggestionController } from './suggestions'
 import { TabManager } from './tab-manager'
+import { UpdateService } from './updates'
 
 // ── One-shot setup. Both of these must happen before app.ready. ──
 applyCommandLineFlags(app)
@@ -72,105 +87,162 @@ function rendererEntry(page: 'index' | 'overlay'): string {
 
 let mainWindow: BrowserWindow | null = null
 
-/**
- * A URL on the command line opens as a tab instead of restoring a session,
- * which is what `omega https://example.com` should do.
- */
+// ── Process-wide services. Built once; survive window recreation. ──
+let settings: SettingsStore
+let history: HistoryStore
+let bookmarks: BookmarksStore
+let adBlock: AdBlocker
+let downloads: DownloadsManager
+let extensions: ExtensionsManager
+let tabSession: Electron.Session
+let incognitoSession: Electron.Session
+let updates: UpdateService
+let tabs: TabManager
+let overlay: OverlayView
+let ai: AiService
+let suggest: SuggestionController
+let perf: PerfMonitor
+let servicesReady = false
+let bootState = { savedFullscreen: false, savedMaximized: false }
+
+/** A URL on the command line opens as a tab instead of restoring a session. */
 function urlFromArgv(argv: string[]): string | null {
   for (const arg of argv.slice(1)) {
     if (arg.startsWith('-')) continue
-    if (/^https?:\/\//i.test(arg)) return arg
+    if (/^(https?|omega):\/\//i.test(arg)) return arg
   }
   return null
 }
 
-async function createWindow(): Promise<void> {
+/** Pending permission prompts, one at a time; resolved via the chrome UI. */
+let pendingPermission: { origin: string; permission: string; resolve: (granted: boolean) => void } | null = null
+
+function buildServices(): void {
   const dataDir = app.getPath('userData')
 
-  // ── State ──
-  const settings = new SettingsStore(dataDir)
-  const history = new HistoryStore(dataDir)
+  settings = new SettingsStore(dataDir)
+  history = new HistoryStore(dataDir)
+  bookmarks = new BookmarksStore(dataDir)
 
   // ── Sessions: web content gets its own partition, never defaultSession ──
-  const tabSession = createTabSession()
+  tabSession = createTabSession(settings.get())
+  incognitoSession = createIncognitoSession(settings.get())
   hardenUiSession()
-  serveOmegaProtocol(settings, history, RENDERER_ROOT, [tabSession])
+  serveOmegaProtocol(settings, history, RENDERER_ROOT, [tabSession, incognitoSession])
 
   // ── Blocking is installed on the *tab* session only ──
-  const adBlock = new AdBlocker(tabSession, dataDir, settings.get().adBlockEnabled)
+  adBlock = new AdBlocker(tabSession, dataDir, settings.get().adBlockEnabled)
   adBlock.initialize()
 
-  // ── Downloads land in the user's Downloads folder, tracked for the page ──
-  // The target list is built lazily: the tab manager does not exist yet here,
-  // and the downloads page lives in a tab view, not the chrome window.
-  const downloads = new DownloadsManager(
+  // ── Interactive permission pipeline (both sessions) ──
+  const permissionHost = {
+    ask: (origin: string, permission: string): Promise<boolean> =>
+      new Promise((resolve) => {
+        // One prompt at a time; the rest auto-deny rather than queueing a
+        // confusing stack of dialogs.
+        if (pendingPermission) {
+          resolve(false)
+          return
+        }
+        pendingPermission = { origin, permission, resolve }
+        pushPermissionPrompt()
+      }),
+    rules: () => settings.get().permissionRules ?? [],
+    onDecide: (rule: { origin: string; permission: string; granted: boolean }): void => {
+      const rules = [...(settings.get().permissionRules ?? [])]
+      const i = rules.findIndex((r) => r.origin === rule.origin && r.permission === rule.permission)
+      if (i >= 0) rules[i] = rule
+      else rules.push(rule)
+      settings.set({ permissionRules: rules })
+    },
+  }
+  installPermissionHandlers(tabSession, permissionHost)
+  installPermissionHandlers(incognitoSession, permissionHost)
+
+  // ── Downloads: settings-driven dir, ask-location, sanitized filenames ──
+  downloads = new DownloadsManager(
     tabSession,
     () => {
       const targets: Electron.WebContents[] = []
       if (mainWindow && !mainWindow.isDestroyed()) targets.push(mainWindow.webContents)
-      for (const tab of tabs?.getAllTabs() ?? []) {
-        if (tab.url === DOWNLOADS_PAGE_URL) {
-          const wc = tabs.getWebContents(tab.id)
-          if (wc) targets.push(wc)
+      if (tabs) {
+        for (const t of tabs.getAllTabs()) {
+          if (t.url === DOWNLOADS_PAGE_URL) {
+            const wc = tabs.getWebContents(t.id)
+            if (wc) targets.push(wc)
+          }
         }
       }
-      // Downloads started from a detached window update its page too (the
-      // context menu offers Save Image As etc. there).
       targets.push(...detachedWebContents())
       return targets
     },
     app.getPath('downloads'),
+    settings,
   )
   downloads.attach()
 
-  // "Open in new window": shared state for every detached window.
-  const detachedWindowOptions = (): DetachedWindowOptions => ({
-    preloadPath: null,
-    history,
-    iconPath: existsSync(WINDOW_ICON_PATH) ? WINDOW_ICON_PATH : null,
-    baselineBounds: mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : undefined,
-    // Move to Tab Strip: re-host the page as an active tab, then the module
-    // closes the window. Focus follows the tab the user just created.
-    onReattach: (url) => {
-      void tabs.createTab({ url }).then(() => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          if (mainWindow.isMinimized()) mainWindow.restore()
-          mainWindow.focus()
-        }
-      })
-    },
-  })
-
   // ── Extensions load into the tab session; folders persist in settings ──
-  const extensions = new ExtensionsManager(tabSession)
+  extensions = new ExtensionsManager(tabSession)
+
+  updates = new UpdateService(() => mainWindow)
+  // Background update cycle: check shortly after launch, then every 6h.
+  // Downloads are silent; the update applies on next quit.
+  if (app.isPackaged) updates.startAutoChecks()
+  servicesReady = true
+}
+
+function pushPermissionPrompt(): void {
+  const win = mainWindow
+  if (!win || win.isDestroyed() || !pendingPermission) return
+  win.webContents.send('permission:request', {
+    origin: pendingPermission.origin,
+    permission: pendingPermission.permission,
+  })
+}
+
+function answerPermission(granted: boolean): void {
+  const pending = pendingPermission
+  pendingPermission = null
+  pending?.resolve(granted)
+}
+
+/** Restores saved extensions; logged, never fatal. */
+function restoreExtensions(): void {
   const savedExtensions = settings.get().extensions ?? []
-  if (savedExtensions.length > 0) {
-    extensions
-      .restore(savedExtensions)
-      .then((restored) => {
-        if (restored.length !== savedExtensions.length) {
-          console.warn(
-            `[omega] extensions: restored ${restored.length} of ${savedExtensions.length} (missing folders skipped)`,
-          )
-        }
-      })
-      .catch((err) => console.warn('[omega] extension restore failed:', err))
-  }
+  if (savedExtensions.length === 0) return
+  extensions
+    .restore(savedExtensions)
+    .then((restored) => {
+      if (restored.length !== savedExtensions.length) {
+        console.warn(
+          `[omega] extensions: restored ${restored.length} of ${savedExtensions.length} (missing folders skipped)`,
+        )
+      }
+    })
+    .catch((err) => console.warn('[omega] extension restore failed:', err))
+}
+
+async function createWindow(): Promise<void> {
+  if (!servicesReady) buildServices()
 
   const isMac = process.platform === 'darwin'
 
   // Restore the window as the user left it: normal bounds, maximized, or
-  // fullscreen. Fullscreen is the case people notice when it is missing —
-  // F11 and reopen should behave like every mainstream browser.
+  // fullscreen. Bounds are validated against connected displays first — a
+  // monitor that has since been disconnected must not swallow the window.
   const saved = settings.get().windowState
+  bootState = { savedFullscreen: !!saved?.fullscreen, savedMaximized: !!saved?.maximized }
   const savedBounds = saved?.bounds
-  const restoredWidth = savedBounds?.width ?? 1360
-  const restoredHeight = savedBounds?.height ?? 860
+  const clamped = savedBounds
+    ? clampBoundsToDisplays(savedBounds, screen.getAllDisplays())
+    : null
+  const restoredWidth = (clamped ?? savedBounds)?.width ?? 1360
+  const restoredHeight = (clamped ?? savedBounds)?.height ?? 860
 
   const win = new BrowserWindow({
     width: restoredWidth,
     height: restoredHeight,
-    ...(savedBounds ? { x: savedBounds.x, y: savedBounds.y } : {}),
+    ...(clamped ? { x: clamped.x, y: clamped.y } : {}),
     minWidth: MIN_WINDOW_WIDTH,
     minHeight: MIN_WINDOW_HEIGHT,
     show: false,
@@ -200,9 +272,9 @@ async function createWindow(): Promise<void> {
   mainWindow = win
 
   // ── Overlay surface (omnibox suggestions) — must exist before any tab view ──
-  const overlay = new OverlayView(win, PRELOAD_PATH, rendererEntry('overlay'))
+  overlay = new OverlayView(win, PRELOAD_PATH, rendererEntry('overlay'))
 
-  const tabs = new TabManager({
+  tabs = new TabManager({
     win,
     preloadPath: PRELOAD_PATH,
     history,
@@ -214,16 +286,16 @@ async function createWindow(): Promise<void> {
     },
   })
 
-  const perf = new PerfMonitor({
+  perf = new PerfMonitor({
     adBlock: () => adBlock.stats,
     uiWebContents: () => win.webContents,
   })
 
-  const ai = new AiService(tabs, settings, (chunk) => {
+  ai = new AiService(tabs, settings, (chunk) => {
     if (!win.webContents.isDestroyed()) win.webContents.send('ai:chunk', chunk)
   })
 
-  const suggest = new SuggestionController(history, settings, overlay)
+  suggest = new SuggestionController(history, settings, overlay)
 
   const emitWindowState = (): void => {
     if (win.webContents.isDestroyed()) return
@@ -234,10 +306,28 @@ async function createWindow(): Promise<void> {
     })
   }
 
+  const detachedWindowOptions = (): DetachedWindowOptions => ({
+    preloadPath: null,
+    history,
+    iconPath: existsSync(WINDOW_ICON_PATH) ? WINDOW_ICON_PATH : null,
+    baselineBounds: mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : undefined,
+    // Move to Tab Strip: re-host the page as an active tab, then the module
+    // closes the window. Focus follows the tab the user just created.
+    onReattach: (url) => {
+      void tabs.createTab({ url }).then(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (mainWindow.isMinimized()) mainWindow.restore()
+          mainWindow.focus()
+        }
+      })
+    },
+  })
+
   registerIpcHandlers({
     win,
     tabs,
     history,
+    bookmarks,
     settings,
     adBlock,
     perf,
@@ -245,8 +335,11 @@ async function createWindow(): Promise<void> {
     suggest,
     downloads,
     extensions,
+    updates,
     emitWindowState,
     detachedWindowOptions,
+    answerPermission,
+    clearData: (options) => clearBrowsingData([tabSession, incognitoSession], options),
   })
 
   // ── Menus carry every keyboard shortcut (focus lives in the tab views) ──
@@ -254,6 +347,7 @@ async function createWindow(): Promise<void> {
 
   installAppMenu({
     newTab: () => void tabs.createTab({}),
+    newPrivateTab: () => void tabs.createTab({ incognito: true }),
     closeTab: () => {
       const id = activeId()
       if (id !== null) void tabs.closeTab(id)
@@ -296,6 +390,27 @@ async function createWindow(): Promise<void> {
     },
     toggleDevTools: () => tabs.getWebContents(activeId() ?? -1)?.openDevTools({ mode: 'detach' }),
     toggleUiDevTools: () => win.webContents.toggleDevTools(),
+    fullscreen: () => {
+      if (win.isFullScreen()) win.setFullScreen(false)
+      else win.setFullScreen(true)
+    },
+    print: () => {
+      const id = activeId()
+      const wc = id !== null ? tabs.getWebContents(id) : null
+      if (wc && !wc.isDestroyed()) wc.print()
+    },
+    bookmarkPage: () => {
+      const id = activeId()
+      if (id === null) return
+      const meta = tabs.getMeta(id)
+      if (!meta || !/^https?:/.test(meta.url)) return
+      try {
+        bookmarks.add(meta.url, meta.title)
+        win.webContents.send('toast', { kind: 'info', message: 'Bookmark added' })
+      } catch {
+        /* already bookmarked */
+      }
+    },
     command: (command) => {
       if (command === 'open-settings') {
         void tabs.openOrFocusPage('settings')
@@ -319,12 +434,12 @@ async function createWindow(): Promise<void> {
   win.once('ready-to-show', () => {
     // Apply the persisted mode after the normal bounds are set but before the
     // window paints, so the user never sees a wrong-sized flash.
-    if (saved?.maximized && !saved.fullscreen) win.maximize()
-    if (saved?.fullscreen) win.setFullScreen(true)
+    if (bootState.savedMaximized && !bootState.savedFullscreen) win.maximize()
+    if (bootState.savedFullscreen) win.setFullScreen(true)
     win.show()
   })
   win.on('closed', () => {
-    mainWindow = null
+    if (mainWindow === win) mainWindow = null
   })
 
   // Persist window state as it changes AND on close. The close-time save is
@@ -345,15 +460,23 @@ async function createWindow(): Promise<void> {
   win.on('unmaximize', persistWindowState)
   win.on('close', persistWindowState)
 
+  // ── Session durability: periodic save, not only on clean quit ──
+  const sessionSaver = setInterval(() => {
+    try {
+      if (settings.get().restoreSession && !win.isDestroyed()) {
+        history.saveSession(tabs.sessionSnapshot())
+      }
+    } catch {
+      /* never fatal */
+    }
+  }, 30_000)
+
   // ── Load the chrome ──
   // Surface renderer load failures instead of leaving a blank window with no
   // explanation: a packaged build loads over `file://`, where a stray CORS or
   // CSP problem otherwise fails silently.
   win.webContents.on('did-fail-load', (_event, code, description, url) => {
     console.error(`[omega] chrome failed to load (${code} ${description}) ${url}`)
-  })
-  win.webContents.on('render-process-gone', (_event, details) => {
-    console.error(`[omega] chrome renderer exited: ${details.reason}`)
   })
 
   await win.loadURL(rendererEntry('index'))
@@ -375,6 +498,9 @@ async function createWindow(): Promise<void> {
     await tabs.createTab({})
   }
 
+  // ── Clear the CLI argv so a later macOS `activate` doesn't re-open it ──
+  process.argv.length = 1
+
   if (!app.isPackaged) {
     perf.startDevLogging(30_000)
     // One line per tab shortly after launch. Catches the failure mode where a
@@ -386,6 +512,16 @@ async function createWindow(): Promise<void> {
       }
     }, 3000)
   }
+
+  win.once('closed', () => {
+    clearInterval(sessionSaver)
+    // Save one last time on window close.
+    try {
+      if (settings.get().restoreSession) history.saveSession(tabs.sessionSnapshot())
+    } catch {
+      /* never block shutdown on a persistence error */
+    }
+  })
 
   app.on('before-quit', () => {
     try {
@@ -400,26 +536,38 @@ async function createWindow(): Promise<void> {
     overlay.destroy()
     closeAllDetachedWindows()
     history.close()
+    bookmarks.close()
   })
 
   // ── Crash resilience ──
   // "The app closes itself" is almost always a browser-process exception or a
   // GPU process exit escalating to full teardown. None of these are fatal:
   // log, keep the window alive, degrade gracefully.
+  process.removeAllListeners('uncaughtException')
   process.on('uncaughtException', (err) => {
     console.error('[omega] uncaught exception (browser process kept alive):', err)
   })
+  process.removeAllListeners('unhandledRejection')
   process.on('unhandledRejection', (reason) => {
     console.error('[omega] unhandled rejection (browser process kept alive):', reason)
   })
 
+  let gpuCrashes = 0
   app.on('child-process-gone', (_event, details) => {
-    // GPU death normally blanks every tab; a restart recovers it without
-    // touching the window. Renderer deaths are handled per-tab in TabManager.
+    // GPU death normally blanks every tab. First crash: restart the compositor
+    // path. Second: relaunch with hardware acceleration off, which always
+    // works, at the cost of software rendering.
     if (details.type === 'GPU') {
-      console.warn('[omega] GPU process gone:', details.reason, '— requesting restart')
+      gpuCrashes += 1
+      console.warn(`[omega] GPU process gone (${gpuCrashes}):`, details.reason)
       try {
-        app.commandLine.appendSwitch('ignore-gpu-blocklist')
+        if (gpuCrashes >= 2 && !process.env['OMEGA_NO_GPU_FALLBACK']) {
+          console.warn('[omega] falling back to software rendering on next launch')
+          settings.set({ ...settings.get(), gpuFallback: true } as never)
+          app.relaunch()
+          app.exit(0)
+          return
+        }
         win.webContents.invalidate()
       } catch {
         /* window may already be closing */
@@ -498,23 +646,31 @@ app.on('web-contents-created', (_event, contents) => {
   }
 })
 
-// A second launch should focus the existing browser, not start a new one.
+// A second launch should focus the existing browser — and, if it carried a
+// URL, open it as a tab (deep links like `omega https://x.com`).
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    const url = urlFromArgv(argv)
+    if (url && tabs) void tabs.createTab({ url })
     if (!mainWindow) return
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
   })
 
-  app.whenReady().then(createWindow).catch((err) => {
+  app.whenReady().then(async () => {
+    buildServices()
+    restoreExtensions()
+    await createWindow()
+  }).catch((err) => {
     console.error('[omega] failed to start:', err)
     app.quit()
   })
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) void createWindow()
+    // macOS only. The services are singletons; only the window is rebuilt.
+    if (BrowserWindow.getAllWindows().length === 0 && servicesReady) void createWindow()
   })
 
   app.on('window-all-closed', () => {

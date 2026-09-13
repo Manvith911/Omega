@@ -17,6 +17,8 @@
 
 import { BrowserWindow, WebContentsView, type WebContents } from 'electron'
 import {
+  ABOUT_PAGE_URL,
+  BOOKMARKS_PAGE_URL,
   DOWNLOADS_PAGE_URL,
   EXTENSIONS_PAGE_URL,
   HISTORY_PAGE_URL,
@@ -28,9 +30,9 @@ import type { FindResult, TabCreatePayload, TabMeta, ViewRect } from '@shared/ip
 import { freeze, thaw } from './tab-freezer'
 import type { HistoryStore } from './history-store'
 import type { SettingsStore } from './settings-store'
-import { TAB_PARTITION } from './sessions'
+import { INCOGNITO_PARTITION, TAB_PARTITION } from './sessions'
 import { popupContextMenu } from './context-menu'
-import { isInternalUrl, prettyUrl, toNavigationUrl } from '@shared/url'
+import { activeEngineTemplate, isInternalUrl, prettyUrl, toNavigationUrl } from '@shared/url'
 
 const ZOOM_BASE = 1.2
 
@@ -40,6 +42,8 @@ function internalPageTitle(url: string): string {
   if (url.startsWith(HISTORY_PAGE_URL)) return 'History'
   if (url.startsWith(DOWNLOADS_PAGE_URL)) return 'Downloads'
   if (url.startsWith(EXTENSIONS_PAGE_URL)) return 'Extensions'
+  if (url.startsWith(BOOKMARKS_PAGE_URL)) return 'Bookmarks'
+  if (url.startsWith(ABOUT_PAGE_URL)) return 'About Omega'
   if (url.startsWith(NEW_TAB_URL)) return 'New Tab'
   return prettyUrl(url) || 'Untitled'
 }
@@ -62,6 +66,10 @@ interface TabEntry {
   freezeTimer: NodeJS.Timeout | null
   discardTimer: NodeJS.Timeout | null
   crashed: boolean
+  /** persist:omega-web or the in-memory incognito partition. */
+  partition: string
+  /** Last find-in-page counts, per tab (was global — leaked across tabs). */
+  findState: FindResult
 }
 
 export interface TabManagerOptions {
@@ -109,6 +117,7 @@ export class TabManager {
   async createTab(payload: TabCreatePayload = {}): Promise<TabMeta> {
     const id = this.nextId++
     const url = payload.url ?? NEW_TAB_URL
+    const incognito = payload.incognito === true
 
     const meta: TabMeta = {
       id,
@@ -124,6 +133,7 @@ export class TabManager {
       lifecycle: 'throttled',
       lastActiveAt: Date.now(),
       error: null,
+      incognito,
     }
 
     const entry: TabEntry = {
@@ -135,6 +145,8 @@ export class TabManager {
       freezeTimer: null,
       discardTimer: null,
       crashed: false,
+      partition: incognito ? INCOGNITO_PARTITION : TAB_PARTITION,
+      findState: { matches: 0, active: 0 },
     }
 
     this.tabs.set(id, entry)
@@ -158,12 +170,16 @@ export class TabManager {
    * that already shows it. Chrome behaves the same way: one Settings tab per
    * window, however many times you trigger the command.
    */
-  async openOrFocusPage(page: 'settings' | 'history' | 'downloads' | 'extensions'): Promise<TabMeta | null> {
+  async openOrFocusPage(
+    page: 'settings' | 'history' | 'downloads' | 'extensions' | 'bookmarks' | 'about',
+  ): Promise<TabMeta | null> {
     const targets: Record<typeof page, string> = {
       settings: SETTINGS_PAGE_URL,
       history: HISTORY_PAGE_URL,
       downloads: DOWNLOADS_PAGE_URL,
       extensions: EXTENSIONS_PAGE_URL,
+      bookmarks: BOOKMARKS_PAGE_URL,
+      about: ABOUT_PAGE_URL,
     }
     const target = targets[page]
     const existing = [...this.tabs.values()].find((e) => e.meta.url === target)
@@ -277,7 +293,8 @@ export class TabManager {
     const entry = this.tabs.get(tabId)
     if (!entry) return
 
-    const url = toNavigationUrl(input, this.o.settings.get().searchEngine)
+    const s = this.o.settings.get()
+    const url = toNavigationUrl(input, activeEngineTemplate(s.searchEngine, s.customSearchEngines))
     entry.meta.error = null
 
     if (!entry.view || entry.crashed) {
@@ -337,7 +354,47 @@ export class TabManager {
     }
 
     this.withWebContents(tabId, (wc) => wc.setZoomLevel(Math.log(entry.zoomFactor) / Math.log(ZOOM_BASE)))
+    this.rememberZoom(entry)
     return Math.round(entry.zoomFactor * 100)
+  }
+
+  /**
+   * Per-origin zoom, persisted. Incognito tabs never write: their "origin
+   * memory" dies with the session, which is the point of the mode.
+   */
+  private rememberZoom(entry: TabEntry): void {
+    if (entry.meta.incognito) return
+    let origin = ''
+    try {
+      const u = new URL(entry.meta.url)
+      if (u.protocol === 'http:' || u.protocol === 'https:') origin = u.origin
+    } catch {
+      return
+    }
+    if (!origin) return
+    const levels = { ...this.o.settings.get().zoomLevels }
+    if (entry.zoomFactor === 1) delete levels[origin]
+    else levels[origin] = entry.zoomFactor
+    this.o.settings.set({ zoomLevels: levels })
+  }
+
+  /** Applies the persisted per-origin zoom to a tab that just navigated. */
+  private applyPersistedZoom(entry: TabEntry, url: string): void {
+    if (entry.meta.incognito) return
+    let origin = ''
+    try {
+      const u = new URL(url)
+      if (u.protocol === 'http:' || u.protocol === 'https:') origin = u.origin
+    } catch {
+      return
+    }
+    const saved = this.o.settings.get().zoomLevels[origin]
+    if (saved && Number.isFinite(saved)) {
+      entry.zoomFactor = saved
+      this.withWebContents(entry.id, (wc) => wc.setZoomLevel(Math.log(saved) / Math.log(ZOOM_BASE)))
+    } else {
+      entry.zoomFactor = 1
+    }
   }
 
   setMuted(tabId: number, muted: boolean): void {
@@ -352,7 +409,15 @@ export class TabManager {
     const entry = this.tabs.get(tabId)
     if (!entry) return null
     const index = this.order.indexOf(tabId) + 1
-    return this.createTab({ url: entry.meta.url, index })
+    const copy = await this.createTab({
+      url: entry.meta.url,
+      index,
+      incognito: entry.meta.incognito,
+      background: false,
+    })
+    // A duplicate keeps the original's mute state.
+    if (entry.meta.isMuted) this.setMuted(copy.id, true)
+    return copy
   }
 
   async reopen(): Promise<TabMeta | null> {
@@ -364,23 +429,23 @@ export class TabManager {
   findStart(tabId: number, text: string): FindResult {
     const entry = this.tabs.get(tabId)
     if (!entry?.view || entry.view.webContents.isDestroyed() || !text) return { matches: 0, active: 0 }
+    entry.findState = { matches: 0, active: 0 }
     entry.view.webContents.findInPage(text, { findNext: false })
-    return this.lastFind
+    return entry.findState
   }
 
   findNext(tabId: number, text: string, forward: boolean): FindResult {
     const entry = this.tabs.get(tabId)
     if (!entry?.view || entry.view.webContents.isDestroyed() || !text) return { matches: 0, active: 0 }
     entry.view.webContents.findInPage(text, { findNext: true, forward })
-    return this.lastFind
+    return entry.findState
   }
 
   findStop(tabId: number): void {
     this.withWebContents(tabId, (wc) => wc.stopFindInPage('clearSelection'))
-    this.lastFind = { matches: 0, active: 0 }
+    const entry = this.tabs.get(tabId)
+    if (entry) entry.findState = { matches: 0, active: 0 }
   }
-
-  private lastFind: FindResult = { matches: 0, active: 0 }
 
   getAllTabs(): TabMeta[] {
     return this.order
@@ -405,11 +470,12 @@ export class TabManager {
     return entry ? this.metaOf(entry) : null
   }
 
-  /** URLs to restore on next launch, in strip order. */
+  /** URLs to restore on next launch, in strip order. Incognito never persists. */
   sessionSnapshot(): string[] {
     return this.order
       .map((id) => this.tabs.get(id))
       .filter((e): e is TabEntry => e !== undefined)
+      .filter((e) => !e.meta.incognito)
       .map((e) => e.meta.url)
       .filter((url) => !!url && !isInternalUrl(url))
   }
@@ -479,7 +545,7 @@ export class TabManager {
     const view = new WebContentsView({
       webPreferences: {
         preload: this.o.preloadPath,
-        partition: TAB_PARTITION,
+        partition: entry.partition,
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -594,12 +660,15 @@ export class TabManager {
       meta.canGoForward = wc.navigationHistory.canGoForward()
       meta.error = null
       if (httpResponseCode >= 400) meta.error = `HTTP ${httpResponseCode}`
-      // Internal pages are chrome, not browsing history.
-      if (!isInternalUrl(url)) this.o.history.record(url, meta.title)
+      // Internal pages are chrome, not browsing history; incognito pages are
+      // never recorded at all.
+      if (!isInternalUrl(url) && !meta.incognito) this.o.history.record(url, meta.title)
       // Internal pages have no document title event, so derive one from the
       // URL. Without this the strip shows the raw URL for the settings and
       // history tabs.
       if (isInternalUrl(url)) meta.title = internalPageTitle(url)
+      // Per-origin zoom follows the navigation.
+      this.applyPersistedZoom(entry, url)
       this.markDirty(entry)
       this.send('nav:navigated', { tabId: entry.id, url })
     })
@@ -618,7 +687,7 @@ export class TabManager {
       meta.title = title || prettyUrl(meta.url) || 'Untitled'
       // Metadata only — bumping the visit count here would double-count every
       // page, since this fires alongside did-navigate.
-      this.o.history.touchTitle(meta.url, title)
+      if (!meta.incognito) this.o.history.touchTitle(meta.url, title)
       this.markDirty(entry)
     })
 
@@ -647,8 +716,8 @@ export class TabManager {
 
     wc.on('found-in-page', (_event, result) => {
       if (!live()) return
-      this.lastFind = { matches: result.matches, active: result.activeMatchOrdinal }
-      this.send('find:result', this.lastFind)
+      entry.findState = { matches: result.matches, active: result.activeMatchOrdinal }
+      this.send('find:result', entry.findState)
     })
 
     wc.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
@@ -673,8 +742,12 @@ export class TabManager {
 
     // Popups become tabs. Never let a page spawn its own window: those are
     // unmanaged webContents with no chrome, no blocker, and no user affordance.
-    wc.setWindowOpenHandler(({ url }) => {
-      if (/^https?:/.test(url)) void this.createTab({ url, background: false })
+    // Background dispositions (ctrl/middle click) must not steal focus.
+    wc.setWindowOpenHandler(({ url, disposition }) => {
+      if (/^https?:/.test(url)) {
+        const background = disposition === 'background-tab'
+        void this.createTab({ url, background, incognito: meta.incognito })
+      }
       return { action: 'deny' }
     })
 
@@ -693,7 +766,7 @@ export class TabManager {
 
     wc.on('context-menu', (_event, params) => {
       popupContextMenu(this.o.win, wc, params, {
-        onNewTab: (url) => void this.createTab({ url }),
+        onNewTab: (url) => void this.createTab({ url, background: true, incognito: meta.incognito }),
         onReload: () => wc.reload(),
         onBack: () => wc.navigationHistory.canGoBack() && wc.navigationHistory.goBack(),
         onInspect: () => wc.openDevTools({ mode: 'detach' }),

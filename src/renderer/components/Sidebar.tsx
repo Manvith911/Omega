@@ -27,6 +27,8 @@ export function Sidebar(): React.JSX.Element {
 
   const streamingRef = useRef(false)
   const answerRef = useRef('')
+  /** In-flight request id from ai:ask; Stop aborts the real request. */
+  const requestRef = useRef<string | null>(null)
 
   const tabId = tab?.id ?? null
 
@@ -39,6 +41,7 @@ export function Sidebar(): React.JSX.Element {
         return
       }
       streamingRef.current = false
+      requestRef.current = null
       setStreaming(false)
       if (chunk.type === 'error') setError(chunk.value)
     })
@@ -71,16 +74,25 @@ export function Sidebar(): React.JSX.Element {
       answerRef.current = ''
       streamingRef.current = true
       setStreaming(true)
-      void window.omega.invoke('ai:ask', tabId, text).catch((err: unknown) => {
-        streamingRef.current = false
-        setStreaming(false)
-        setError(err instanceof Error ? err.message : String(err))
-      })
+      void window.omega
+        .invoke('ai:ask', tabId, text)
+        .then((id) => {
+          // The first token can beat this promise; only remember the id while
+          // we are still streaming so Stop can abort the real request.
+          if (streamingRef.current) requestRef.current = id
+        })
+        .catch((err: unknown) => {
+          streamingRef.current = false
+          setStreaming(false)
+          setError(err instanceof Error ? err.message : String(err))
+        })
     },
     [tabId],
   )
 
   const abort = useCallback(() => {
+    if (requestRef.current) void window.omega.invoke('ai:abort', requestRef.current).catch(() => undefined)
+    requestRef.current = null
     streamingRef.current = false
     setStreaming(false)
   }, [])
